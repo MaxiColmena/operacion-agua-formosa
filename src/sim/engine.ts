@@ -96,11 +96,11 @@ export class FloodSim {
     return this.assumptions.gaugeZero + this.scenario.riverStage;
   }
 
+  /** Cambiar río o defensa reinicia el estado; cambiar lluvia o desagüe no. */
   setScenario(s: Scenario) {
-    const defenseChanged = s.defenseFails !== this.scenario.defenseFails;
+    const structural = s.defenseFails !== this.scenario.defenseFails || s.riverStage !== this.scenario.riverStage;
     this.scenario = s;
-    if (defenseChanged) this.buildEffectiveTerrain();
-    this.applyRiverBoundary();
+    if (structural) this.reset();
   }
 
   reset() {
@@ -113,8 +113,39 @@ export class FloodSim {
     this.rainVolume = 0;
     this.drainVolume = 0;
     this.buildEffectiveTerrain();
-    // Cuerpos de agua permanentes arrancan "llenos" hasta un nivel bajo, para que la lluvia no los cuente como inundación.
     this.applyRiverBoundary();
+    this.fillFromRiver();
+  }
+
+  /** 1 = la celda arranca bajo agua porque está conectada al río por debajo de su nivel ("bañadera conectada"). */
+  readonly byRiver: Uint8Array = new Uint8Array(0);
+
+  /**
+   * Estado inicial: toda celda conectada al río y por debajo de su nivel arranca con agua (equilibrio estático).
+   * Así el escenario del río es un dato de partida y la lluvia es la parte dinámica.
+   */
+  private fillFromRiver() {
+    const { width: w, height: h } = this.grid;
+    const { river } = this.masks;
+    const lvl = this.riverLevel;
+    const z = this.zEff;
+    const by = this.byRiver.length === this.n ? this.byRiver : ((this as { byRiver: Uint8Array }).byRiver = new Uint8Array(this.n));
+    by.fill(0);
+    const stack: number[] = [];
+    for (let i = 0; i < this.n; i++) if (river[i]) { by[i] = 1; stack.push(i); }
+    while (stack.length) {
+      const i = stack.pop()!;
+      const x = i % w, y = (i / w) | 0;
+      const nb = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1];
+      for (const j of nb) {
+        if (j < 0 || by[j] || z[j] >= lvl) continue;
+        by[j] = 1;
+        this.d[j] = lvl - z[j];
+        this.maxD[j] = this.d[j];
+        if (this.d[j] >= this.assumptions.wetThreshold && !this.masks.water[j]) this.tWet[j] = 0;
+        stack.push(j);
+      }
+    }
   }
 
   /** Terreno efectivo: el terreno con la defensa elevada a su coronamiento (salvo falla). */
