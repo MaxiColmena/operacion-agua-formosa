@@ -7,7 +7,7 @@ import {
   capacidadDeDrenaje,
 } from '../src/escenario/inundacion.js';
 import { crearModelo } from '../src/escenario/terreno.js';
-import { CERO_ESCALA, UMBRALES_INA } from '../src/escenario/datos-ficticios.js';
+import { CERO_ESCALA, UMBRALES_INA, NIVEL_CORONAMIENTO } from '../src/escenario/datos-ficticios.js';
 
 // Grilla 5x1: río | 3 | 8 (barrera) | 2 | 4
 function grillaConBarrera() {
@@ -105,11 +105,11 @@ describe('modelo ficticio de Formosa', () => {
   it('la defensa protege: dentro del anillo nada se inunda por río antes del coronamiento', () => {
     const umbralesDentro = modelo.infraestructura.filter((i) => i.dentroDefensa).map((i) => i.umbral.normal);
     expect(umbralesDentro.length).toBeGreaterThan(5);
-    for (const u of umbralesDentro) expect(u).toBeGreaterThanOrEqual(10.5 - 1e-9);
+    for (const u of umbralesDentro) expect(u).toBeGreaterThanOrEqual(NIVEL_CORONAMIENTO - 1e-9);
   });
 
   it('con falla de la defensa algo de adentro se afecta antes', () => {
-    const conFalla = modelo.infraestructura.filter((i) => i.dentroDefensa && i.umbral.falla < 10.5);
+    const conFalla = modelo.infraestructura.filter((i) => i.dentroDefensa && i.umbral.falla < NIVEL_CORONAMIENTO);
     expect(conFalla.length).toBeGreaterThan(0);
   });
 
@@ -171,7 +171,9 @@ describe('modelo sobre la geografía real (OSM)', async () => {
   });
 
   it('con la defensa sana no entra agua del río a la ciudad hasta el coronamiento', () => {
-    expect(contar(agua(9.1), true)).toBe(0);
+    expect(contar(agua(9.45), true)).toBe(0); // crecida de dic. 2015
+    expect(contar(agua(10.73), true)).toBe(0); // récord de 1983, por debajo de los 11,70 m actuales
+    expect(contar(agua(12), true)).toBeGreaterThan(0); // supera el coronamiento
     expect(contar(agua(9.1))).toBeGreaterThan(contar(agua(7.8)));
   });
 

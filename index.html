@@ -85,7 +85,7 @@
         <details class="seccion" open>
           <summary>CUÁNTA AGUA</summary>
           <label>Nivel del río en Puerto Formosa: <b id="nivel-texto"></b>
-            <input type="range" id="nivel" min="2" max="11.5" step="0.05" value="4.8" />
+            <input type="range" id="nivel" min="2" max="12.5" step="0.05" value="4.8" />
           </label>
           <label>Lluvia acumulada: <b id="lluvia-texto"></b>
             <input type="range" id="lluvia" min="0" max="250" step="5" value="0" />
@@ -97,7 +97,7 @@
         <details class="seccion" open>
           <summary>DEFENSA</summary>
           <label class="check"><input type="checkbox" id="falla" /> Simular falla de la defensa (brecha)</label>
-          <p class="nota">Con la defensa sana, el agua del río solo entra al anillo si supera el coronamiento ficticio (10,5 m).</p>
+          <p class="nota">Con la defensa sana, el agua del río solo entra al anillo si supera el coronamiento: <b>11,70 m</b> en la escala del puerto (dato oficial, 2015). La traza del anillo es aproximada.</p>
         </details>
 
         <details class="seccion" open>
@@ -116,7 +116,8 @@
           <ul class="supuestos">
             <li>Calles, plazas, escuelas y salud son <b>reales</b> (OpenStreetMap), pero pueden faltar o estar desactualizados.</li>
             <li>Terreno, defensa y lagunas son <b>inventados</b>: dónde cae el agua no es real.</li>
-            <li>Cero de la escala ficticio: 50,0 m. El real hay que pedirlo al INA.</li>
+            <li>Cero de la escala: 47,30 m IGN (sale de la cota oficial de la defensa: 59 m IGN = 11,70 m).</li>
+            <li>Defensa: traza aproximada armada con 5 tramos reales de OSM y conectores estimados.</li>
             <li>Río: el agua llega a toda celda conectada al cauce y por debajo del nivel.</li>
             <li>Lluvia: se llenan los bajos según el exceso sobre el drenaje (45 mm, 20 mm con río ≥ 6,5 m).</li>
             <li>No hay tiempos de llegada reales: el tiempo sale del hidrograma del caso.</li>

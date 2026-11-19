@@ -55,7 +55,7 @@ export function armarGeografia(lineas, poligonos) {
     else if (/Riacho Formosa/i.test(l.nombre)) rios.push({ linea: l.c, semiAnchoM: GEOGRAFIA.semiAnchoRiachoM });
     else if (l.tipo === 'river' || l.tipo === 'stream' || l.tipo === 'canal') cauces.push(l.c);
   }
-  return { rios, cauces, lagunas: poligonos, urbano: GEOGRAFIA.cascoUrbano, brechaCerca: GEOGRAFIA.brechaCerca };
+  return { rios, cauces, lagunas: poligonos, defensa: GEOGRAFIA.defensa, brechaCerca: GEOGRAFIA.brechaCerca };
 }
 
 export async function cargarCiudad() {

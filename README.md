@@ -61,7 +61,7 @@ Si Google falla (clave mala, sin internet, etc.), la app avisa y pasa sola al mo
 
 ### Cómo calcula el agua (resumen)
 
-- **Geografía:** el Río Paraguay (franja de ~460 m sobre su línea en OSM) y el Riacho Formosa traen el agua del río. Las lagunas, bañados, arroyos y canales reales son bajos que se llenan con lluvia. La cota del terreno es **ficticia**: sube al alejarse del agua. La defensa es un anillo ficticio a ~350 m del agua alrededor del casco urbano.
+- **Geografía:** el Río Paraguay (franja de ~460 m sobre su línea en OSM) y el Riacho Formosa traen el agua del río. Las lagunas, bañados, arroyos y canales reales son bajos que se llenan con lluvia. La cota del terreno es **ficticia**: sube al alejarse del agua. La **defensa** es una traza aproximada del anillo real (5 tramos de OSM + conectores estimados, ~23,5 km) con el **coronamiento oficial de 11,70 m** en la escala del puerto. Detalle y fuentes en `src/escenario/defensa-formosa.js`.
 - **Río:** se precalcula para cada celda la **cota mínima que tiene que alcanzar el río para llegar hasta ella** (camino desde el cauce con *priority-flood*). La defensa actúa como barrera. Después, cualquier nivel del río se resuelve al instante.
 - **Lluvia:** se calcula cuánta agua junta cada bajo del terreno. Lo que supera la capacidad del drenaje (45 mm, o 20 mm con el río ≥ 6,5 m porque las bombas no dan abasto) va llenando los bajos.
 - Código: `src/escenario/inundacion.js` (algoritmos, con tests) y `src/escenario/datos-ficticios.js` (todo lo inventado, en un solo lugar para reemplazarlo por datos reales).
@@ -266,7 +266,7 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 | CHIRPS / GPM-IMERG (vía Google Earth Engine) | Lluvia satelital diaria o por hora | EST | Completar huecos y ver lluvias históricas sobre la cuenca |
 | NOAA CPC – ENSO (RONI) | Estado y pronóstico de El Niño | EST | Marco del escenario |
 
-**Dato faltante:** el **cero de la escala de Puerto Formosa en cota IGN**. Sin él no se puede pasar "nivel del río en m" a "cota del agua en m s. n. m." sobre el MDE. El repositorio del INA tiene tablas con el cero de escala por estación (por ejemplo, Puerto Pilcomayo = 52,29 m IGN). **Hay que buscar el de Formosa.**
+**Cero de la escala de Puerto Formosa: 47,30 m IGN** [Probable]. Sale de una nota oficial del Gobierno de Formosa (08/12/2015): la defensa está a cota IGN 59 m, que equivale a 11,70 m en el hidrómetro del puerto, y 59 − 11,70 = 47,30. Conviene confirmarlo con la tabla del INA (por ejemplo, Puerto Pilcomayo = 52,29 m IGN).
 
 ### 7.2 Terreno (MDE)
 
@@ -426,7 +426,7 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 ## 15. Próximos pasos
 
-1. Conseguir el **cero de escala IGN de Puerto Formosa** (repositorio del INA).
+1. Confirmar con el INA el **cero de escala de Puerto Formosa** (estimado en 47,30 m IGN a partir de la cota oficial de la defensa).
 2. Bajar la **serie histórica del río** en Puerto Formosa (INA a5) y calcular los niveles por frecuencia (escala INA 1991–2020).
 3. Descargar el MDE (MDE-Ar y FABDEM) y recortarlo a Formosa Capital.
 4. Conseguir los mapas de **CONAE de enero de 2016** y la mancha de Sentinel-1 de esa crecida para validar.

@@ -65,7 +65,7 @@ export function dibujarHidrograma(canvas, caso, tActual, manual) {
   c.clearRect(0, 0, W, H);
 
   const nivelMin = 2;
-  const nivelMax = 11.5;
+  const nivelMax = 12.5;
   const lluviaMax = 250;
   const xDe = (t) => m.izq + (t / caso.duracionH) * (W - m.izq - m.der);
   const yNivel = (n) => H - m.aba - ((n - nivelMin) / (nivelMax - nivelMin)) * (H - m.arr - m.aba);

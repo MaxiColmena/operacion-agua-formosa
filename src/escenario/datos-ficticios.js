@@ -3,6 +3,7 @@
 // Lo único real son los umbrales del INA para Puerto Formosa (alerta 7,80 m y evacuación 8,30 m).
 
 import { desplazarOeste } from './geo.js';
+import { DEFENSA_REAL, BRECHA_REAL } from './defensa-formosa.js';
 
 export const AREA = { oeste: -58.255, este: -58.125, sur: -26.245, norte: -26.125 };
 export const CENTRO = [-58.19, -26.185];
@@ -10,8 +11,9 @@ export const CENTRO = [-58.19, -26.185];
 export const COLUMNAS = 150;
 export const FILAS = 150;
 
-// Cota del cero de la escala (FICTICIA). El dato real hay que buscarlo en el INA.
-export const CERO_ESCALA = 50.0;
+// Cota del cero de la escala de Puerto Formosa (m IGN). REAL: la defensa está a cota IGN 59 m = 11,70 m en el
+// hidrómetro del puerto (Gobierno de Formosa, 08/12/2015), así que el cero es 59 - 11,70 = 47,30 m.
+export const CERO_ESCALA = 47.3;
 
 // Umbrales reales del INA para Puerto Formosa (m en la escala).
 export const UMBRALES_INA = { alerta: 7.8, evacuacion: 8.3 };
@@ -49,27 +51,23 @@ export const DEFENSA = [
   [-58.218, -26.145],
 ];
 
-// Supuestos para armar el modelo sobre la geografía real de OSM (el río y las lagunas son reales;
-// el ancho, el casco urbano protegido y el lugar de la brecha son FICTICIOS).
+// Supuestos para armar el modelo sobre la geografía real de OSM. El río y las lagunas son reales.
+// La defensa es la traza aproximada del anillo real (ver defensa-formosa.js). El ancho del río y
+// el lugar de la brecha son supuestos.
 export const GEOGRAFIA = {
   semiAnchoParaguayM: 230, // el Paraguay frente a Formosa tiene ~450 m de ancho [Probable]
   semiAnchoRiachoM: 45, // riachos y arroyos: una celda
-  // Casco urbano que encierra la defensa ficticia. El anillo se ajusta a ~350 m del agua.
-  cascoUrbano: [
-    [-58.236, -26.222],
-    [-58.15, -26.222],
-    [-58.15, -26.152],
-    [-58.236, -26.152],
-  ],
-  brechaCerca: [-58.159, -26.186], // la brecha se abre en el tramo del anillo más cercano (costa de la ciudad)
+  defensa: DEFENSA_REAL,
+  brechaCerca: BRECHA_REAL, // la brecha se abre en el tramo del anillo más cercano a este punto
 };
 
 // Punto donde se abre la brecha cuando se activa "falla de la defensa".
 export const BRECHA = [-58.1672, -26.18];
 export const RADIO_BRECHA_M = 260;
 
-// Cota de coronamiento ficticia de la defensa (equivale a 10,5 m en la escala).
-export const CORONAMIENTO = CERO_ESCALA + 10.5;
+// Coronamiento de la defensa: 11,70 m en la escala del puerto (dato oficial de 2015).
+export const NIVEL_CORONAMIENTO = 11.7;
+export const CORONAMIENTO = CERO_ESCALA + NIVEL_CORONAMIENTO;
 
 // Lagunas y bajos ficticios (depresiones del terreno).
 export const BAJOS = [

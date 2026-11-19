@@ -116,9 +116,54 @@ function cotaConDefensa(base, conFalla) {
 
 // ---------- Terreno a partir de la geografía real (OpenStreetMap) ----------
 // Río y lagunas en su lugar real. La cota sigue siendo FICTICIA: crece al alejarse del agua.
-// geo: { rios: [{ linea, semiAnchoM }], lagunas: [[lon, lat], ...][], urbano: [[lon, lat], ...], brechaCerca: [lon, lat] }
+// geo: { rios: [{ linea, semiAnchoM }], lagunas: [[lon, lat], ...][], defensa: [[lon, lat], ...], brechaCerca: [lon, lat] }
 
-const SEPARACION_DEFENSA_CELDAS = 4; // el anillo pasa a ~4 celdas (~350 m) del agua
+// Celdas que toca un anillo cerrado. Recorre cada segmento celda por celda (un eje por vez),
+// así dos celdas seguidas siempre comparten un lado y el agua no se cuela en diagonal.
+function rasterizarAnillo(anillo) {
+  const celdas = new Set();
+  const aGrilla = ([lon, lat]) => [
+    ((lon - AREA.oeste) / (AREA.este - AREA.oeste)) * COLUMNAS,
+    ((lat - AREA.sur) / (AREA.norte - AREA.sur)) * FILAS,
+  ];
+  const agregar = (x, y) => {
+    if (x >= 0 && y >= 0 && x < COLUMNAS && y < FILAS) celdas.add(y * COLUMNAS + x);
+  };
+  for (let k = 0; k < anillo.length; k++) {
+    const [x0, y0] = aGrilla(anillo[k]);
+    const [x1, y1] = aGrilla(anillo[(k + 1) % anillo.length]);
+    let cx = Math.floor(x0);
+    let cy = Math.floor(y0);
+    const fx = Math.floor(x1);
+    const fy = Math.floor(y1);
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const pasoX = Math.sign(dx);
+    const pasoY = Math.sign(dy);
+    const tDeltaX = dx !== 0 ? Math.abs(1 / dx) : Infinity;
+    const tDeltaY = dy !== 0 ? Math.abs(1 / dy) : Infinity;
+    let tMaxX = dx > 0 ? (cx + 1 - x0) / dx : dx < 0 ? (x0 - cx) / -dx : Infinity;
+    let tMaxY = dy > 0 ? (cy + 1 - y0) / dy : dy < 0 ? (y0 - cy) / -dy : Infinity;
+    agregar(cx, cy);
+    while (cx !== fx || cy !== fy) {
+      if (tMaxX < tMaxY) {
+        cx += pasoX;
+        tMaxX += tDeltaX;
+      } else {
+        cy += pasoY;
+        tMaxY += tDeltaY;
+      }
+      agregar(cx, cy);
+      if (Math.min(tMaxX, tMaxY) > 1 + 1e-9 && (cx !== fx || cy !== fy)) {
+        // por redondeo: cerrar el último tramo de a un eje
+        if (cx !== fx) cx += pasoX || Math.sign(fx - cx);
+        else cy += pasoY || Math.sign(fy - cy);
+        agregar(cx, cy);
+      }
+    }
+  }
+  return celdas;
+}
 
 function cajaDe(poligono) {
   let [o, s, e, n] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -225,28 +270,22 @@ function generarTerrenoReal(geo) {
     cotaTerreno[i] = z;
   }
 
-  // 4. Defensa: borde de (casco urbano ∩ celdas a más de N celdas del agua).
-  const region = new Uint8Array(total);
-  for (let i = 0; i < total; i++) {
-    if (distRio[i] >= SEPARACION_DEFENSA_CELDAS && puntoEnPoligono(centroDeCelda(i), geo.urbano)) region[i] = 1;
+  // 4. Defensa: la traza aproximada del anillo real, rasterizada sin huecos diagonales.
+  for (const i of rasterizarAnillo(geo.defensa)) {
+    esDefensa[i] = 1;
+    esRio[i] = 0; // el terraplén es tierra aunque el río pase cerca
+    cotaTerreno[i] = Math.max(cotaTerreno[i], CERO_ESCALA + 6.4);
   }
   let mejorBrecha = -1;
   let distBrecha = Infinity;
   for (let i = 0; i < total; i++) {
-    if (!region[i]) continue;
-    const x = i % COLUMNAS;
-    const y = (i - x) / COLUMNAS;
-    const borde =
-      x === 0 || y === 0 || x === COLUMNAS - 1 || y === FILAS - 1 ||
-      !region[i - 1] || !region[i + 1] || !region[i - COLUMNAS] || !region[i + COLUMNAS];
-    if (borde) {
-      esDefensa[i] = 1;
+    if (esDefensa[i]) {
       const db = Math.hypot(...aMetros(centroDeCelda(i), geo.brechaCerca));
       if (db < distBrecha) {
         distBrecha = db;
         mejorBrecha = i;
       }
-    } else {
+    } else if (puntoEnPoligono(centroDeCelda(i), geo.defensa)) {
       dentroDefensa[i] = 1;
     }
   }
