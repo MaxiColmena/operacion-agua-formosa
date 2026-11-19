@@ -24,7 +24,7 @@ export interface Facility {
 export interface OsmData {
   source: string;
   facilities: Facility[];
-  roads: { k: number; paved: boolean; c: number[][] }[];
+  roads: { k: number; paved: boolean; n?: string; c: number[][] }[];
   waterLines: { kind: string; name: string; c: number[][] }[];
   waterAreas: { kind: string; name: string; rings: number[][][] }[];
   barrios: { name: string; lon: number; lat: number }[];
@@ -45,7 +45,19 @@ export interface AppData {
   zones: Uint8Array | null;
   zonesMeta: ZonesMeta | null;
   osm: OsmData | null;
-  buildings: { h: number; c: number[][] }[];
+  buildings: Buildings | null;
+}
+
+/** Edificios decodificados de buildings.bin: anillos en coordenadas de celda de la grilla completa. */
+export interface Buildings {
+  count: number;
+  /** Inicio de cada edificio en `xy` (en puntos). */
+  start: Uint32Array;
+  size: Uint8Array;
+  height: Float32Array;
+  /** Coordenadas de celda (x, y) intercaladas. */
+  xy: Float32Array;
+  meta: { count: number; microsoft: number; osm: number; source: string } | null;
 }
 
 async function bin(url: string) {
@@ -65,14 +77,15 @@ async function json<T>(url: string): Promise<T | null> {
 
 export async function loadAll(): Promise<AppData> {
   const base = `${import.meta.env.BASE_URL}data/`;
-  const [meta, zBuf, mBuf, zonesBuf, zonesMeta, osm, buildings] = await Promise.all([
+  const [meta, zBuf, mBuf, zonesBuf, zonesMeta, osm, bBuf, bMeta] = await Promise.all([
     json<TerrainMeta>(base + 'terrain.json'),
     bin(base + 'terrain.bin'),
     bin(base + 'masks.bin'),
     bin(base + 'zones.bin').catch(() => null),
     json<ZonesMeta>(base + 'zones.json'),
     json<OsmData>(base + 'osm.json'),
-    json<{ h: number; c: number[][] }[]>(base + 'buildings.json'),
+    bin(base + 'buildings.bin').catch(() => null),
+    json<Buildings['meta']>(base + 'buildings.json'),
   ]);
   if (!meta) throw new Error('Falta public/data/terrain.json: correr "npm run data"');
   return {
@@ -82,7 +95,7 @@ export async function loadAll(): Promise<AppData> {
     zones: zonesBuf ? new Uint8Array(zonesBuf) : null,
     zonesMeta,
     osm,
-    buildings: buildings ?? [],
+    buildings: bBuf ? decodeBuildings(bBuf, meta, bMeta) : null,
   };
 }
 
@@ -90,4 +103,26 @@ export async function loadAll(): Promise<AppData> {
 export function lonLatToCell(meta: TerrainMeta, lon: number, lat: number): [number, number] {
   const { bounds: b, width: w, height: h } = meta;
   return [((lon - b.west) / (b.east - b.west)) * w, ((b.north - lat) / (b.north - b.south)) * h];
+}
+
+function decodeBuildings(buf: ArrayBuffer, meta: TerrainMeta, bMeta: Buildings['meta']): Buildings {
+  const dv = new DataView(buf);
+  const count = dv.getUint32(0, true);
+  const start = new Uint32Array(count), size = new Uint8Array(count), height = new Float32Array(count);
+  let total = 0, o = 4;
+  for (let i = 0; i < count; i++) { const n = dv.getUint8(o); size[i] = n; start[i] = total; total += n; o += 2 + n * 4; }
+  const xy = new Float32Array(total * 2);
+  o = 4;
+  let k = 0;
+  for (let i = 0; i < count; i++) {
+    const n = dv.getUint8(o);
+    height[i] = dv.getUint8(o + 1) / 4;
+    o += 2;
+    for (let j = 0; j < n; j++) {
+      xy[k++] = (dv.getUint16(o, true) / 65535) * meta.width;
+      xy[k++] = (dv.getUint16(o + 2, true) / 65535) * meta.height;
+      o += 4;
+    }
+  }
+  return { count, start, size, height, xy, meta: bMeta };
 }

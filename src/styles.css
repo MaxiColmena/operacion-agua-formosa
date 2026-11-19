@@ -27,7 +27,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .small { font-size: 11px; }
 
 .app { position: relative; width: 100vw; height: 100vh; }
-.viewport { position: absolute; inset: 0; }
+.viewport { position: absolute; inset: 0; z-index: 0; isolation: isolate; }
+.label-layer > div.declutter { opacity: 0 !important; }
 .label-layer { position: absolute; inset: 0; pointer-events: none; }
 .fatal, .loading { position: absolute; inset: 0; display: grid; place-content: center; gap: 16px; text-align: center; color: var(--muted); z-index: 5; }
 .spinner { width: 42px; height: 42px; margin: auto; border: 2px solid var(--line); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; }
@@ -128,10 +129,10 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 .panel.collapsed .collapse { left: 10px; right: auto; }
 
 /* ---------- panel derecho ---------- */
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 .stat { padding: 10px; border-radius: 10px; background: rgba(56, 232, 255, 0.05); border: 1px solid var(--line); }
 .stat span { display: block; font-size: 11px; color: var(--muted); }
-.stat b { display: block; font-size: 18px; margin-top: 2px; color: #fff; }
+.stat b { display: block; font-size: 16px; margin-top: 2px; color: #fff; }
 .stat small { font-size: 10px; color: var(--muted); }
 .stat.accent b { color: var(--bad); text-shadow: 0 0 10px rgba(255, 59, 92, 0.6); }
 .tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: rgba(0, 0, 0, 0.25); }
@@ -201,6 +202,23 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 }
 .barrio-label[data-state='atencion'] { color: var(--warn); }
 .barrio-label[data-state='afectado'] { color: #ff6b80; text-shadow: 0 0 8px rgba(255, 59, 92, 0.9), 0 0 2px #000; }
+
+.street-label {
+  font-size: 9px; font-style: italic; letter-spacing: 0.04em; color: rgba(140, 230, 255, 0.75); white-space: nowrap;
+  text-shadow: 0 0 4px #000, 0 0 2px #000;
+}
+.facility-label {
+  font-size: 10px; font-weight: 600; color: #8ff3ff; white-space: nowrap; padding: 2px 6px; border-radius: 6px;
+  background: rgba(3, 12, 24, 0.75); border: 1px solid rgba(56, 232, 255, 0.4); transition: 0.3s;
+}
+.facility-label[data-state='atencion'] { color: var(--warn); border-color: var(--warn); }
+.facility-label[data-state='afectado'] { color: #fff; background: rgba(255, 59, 92, 0.85); border-color: var(--bad); }
+.tooltip {
+  position: fixed; z-index: 6; pointer-events: none; display: flex; flex-direction: column; gap: 2px; max-width: 280px;
+  padding: 8px 10px; border-radius: 10px; background: var(--panel-solid); border: 1px solid var(--line-strong); font-size: 12px;
+}
+.tooltip small { color: var(--cyan); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.tooltip span { color: var(--muted); font-size: 11px; }
 
 /* ---------- modal ---------- */
 .modal-bg { position: absolute; inset: 0; background: rgba(0, 4, 10, 0.7); display: grid; place-items: center; z-index: 10; backdrop-filter: blur(4px); }

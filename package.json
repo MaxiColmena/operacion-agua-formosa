@@ -9,10 +9,11 @@
     "preview": "vite preview",
     "data:dem": "tsx scripts/build-terrain.ts",
     "data:osm": "tsx scripts/fetch-osm.ts",
+    "data:buildings": "tsx scripts/build-buildings.ts",
     "data:masks": "tsx scripts/build-masks.ts",
     "data:zones": "tsx scripts/build-zones.ts",
     "data:preview": "tsx scripts/preview-dem.ts",
-    "data": "npm run data:dem && npm run data:osm && npm run data:masks && npm run data:zones"
+    "data": "npm run data:dem && npm run data:osm && npm run data:buildings && npm run data:masks && npm run data:zones"
   },
   "dependencies": {
     "react": "^19.3.1",

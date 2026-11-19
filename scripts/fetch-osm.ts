@@ -61,6 +61,7 @@ const infra = await overpass('infra', `
   nwr[amenity=bus_station];`);
 function category(t: Record<string, string>): string | null {
   const a = t.amenity, hc = t.healthcare;
+  if (a === 'pharmacy' || a === 'dentist' || /pharmacy|dentist|optometrist/.test(hc ?? '')) return null;
   if (a === 'hospital' || hc === 'hospital') return 'hospital';
   if (a === 'clinic' || a === 'doctors' || hc) return 'salud';
   if (a && /school|kindergarten|college|university/.test(a)) return 'escuela';
@@ -85,6 +86,7 @@ const roadsRaw = await overpass('roads', `way[highway~"^(motorway|trunk|primary|
 const roads = (roadsRaw.elements as El[]).map((e) => ({
   k: /motorway|trunk|primary/.test(e.tags!.highway) ? 1 : /secondary|tertiary/.test(e.tags!.highway) ? 2 : 3,
   paved: !/unpaved|dirt|ground|earth|sand|gravel/.test(e.tags!.surface ?? ''),
+  n: /motorway|trunk|primary|secondary/.test(e.tags!.highway) ? e.tags!.name ?? '' : '',
   c: line(e.geometry),
 }));
 
@@ -93,6 +95,33 @@ const waterRaw = await overpass('water', `
   way[waterway~"^(river|stream|canal|drain|ditch)$"];
   nwr[natural=water]; nwr[waterway=riverbank]; nwr[landuse=reservoir]; nwr[natural=wetland];
   way[man_made=dyke]; way[embankment=yes]; way[barrier=flood_wall];`);
+/** Une los tramos de una multipolígono (ways sueltos) en anillos cerrados, empalmando por los extremos. */
+function assembleRings(parts: number[][][]): number[][][] {
+  const same = (p: number[], q: number[]) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+  const pool = parts.filter((p) => p.length > 1).map((p) => p.slice());
+  const rings: number[][][] = [];
+  while (pool.length) {
+    let ring = pool.shift()!;
+    let grew = true;
+    while (!same(ring[0], ring[ring.length - 1]) && grew) {
+      grew = false;
+      for (let k = 0; k < pool.length; k++) {
+        const p = pool[k];
+        const end = ring[ring.length - 1];
+        if (same(end, p[0])) ring = ring.concat(p.slice(1));
+        else if (same(end, p[p.length - 1])) ring = ring.concat(p.slice(0, -1).reverse());
+        else continue;
+        pool.splice(k, 1); grew = true; break;
+      }
+    }
+    // Solo se usan anillos cerrados (los que cortan el borde de la consulta quedan abiertos y se descartan).
+    if (same(ring[0], ring[ring.length - 1]) && ring.length > 3) rings.push(ring);
+  }
+  return rings;
+}
+
+const areaKind = (t: Record<string, string>) =>
+  t.natural === 'wetland' ? 'humedal' : t.water === 'river' || t.waterway === 'riverbank' ? 'rio' : 'agua';
 const waterLines: { kind: string; name: string; c: number[][] }[] = [];
 const waterAreas: { kind: string; name: string; rings: number[][][] }[] = [];
 for (const e of waterRaw.elements as El[]) {
@@ -103,10 +132,10 @@ for (const e of waterRaw.elements as El[]) {
   } else if (t.waterway && e.type === 'way' && !t.natural) {
     waterLines.push({ kind: t.waterway, name, c: line(e.geometry) });
   } else if (e.type === 'way') {
-    waterAreas.push({ kind: t.natural === 'wetland' ? 'humedal' : 'agua', name, rings: [line(e.geometry)] });
+    waterAreas.push({ kind: areaKind(t), name, rings: [line(e.geometry)] });
   } else if (e.members) {
-    waterAreas.push({ kind: t.natural === 'wetland' ? 'humedal' : 'agua', name,
-      rings: e.members.filter((m) => m.role !== 'inner').map((m) => line(m.geometry)) });
+    waterAreas.push({ kind: areaKind(t), name,
+      rings: assembleRings(e.members.filter((m) => m.role !== 'inner').map((m) => line(m.geometry))) });
   }
 }
 
@@ -117,20 +146,15 @@ const barrios = (placesRaw.elements as El[]).flatMap((e) => {
   return p && n ? [{ name: n, lon: p[0], lat: p[1] }] : [];
 });
 
-// 5) Edificios (huellas)
-const bRaw = await overpass('buildings', `way[building];`);
-const buildings = (bRaw.elements as El[]).map((e) => {
-  const lv = parseFloat(e.tags?.['building:levels'] ?? '');
-  const hgt = parseFloat(e.tags?.height ?? '');
-  return { h: hgt || (lv ? lv * 3 : 0), c: line(e.geometry) };
-});
+// 5) Edificios: opcional (consulta pesada). Microsoft ya cubre casi todas las viviendas.
+// Con OSM_BUILDINGS=1 se baja el caché crudo (data-raw/osm_buildings.json) y build-buildings lo combina.
+if (process.env.OSM_BUILDINGS === '1') await overpass('buildings', `way[building];`);
 
 writeFileSync('public/data/osm.json', JSON.stringify({
   source: 'OpenStreetMap contributors (ODbL), consulta Overpass ' + new Date().toISOString().slice(0, 10),
   facilities, roads, waterLines, waterAreas, barrios,
 }));
-writeFileSync('public/data/buildings.json', JSON.stringify(buildings));
 const count = (a: { cat: string }[]) => a.reduce((m, f) => ((m[f.cat] = (m[f.cat] ?? 0) + 1), m), {} as Record<string, number>);
 console.log({ facilities: count(facilities), roads: roads.length, waterLines: waterLines.length,
   defensas: waterLines.filter((w) => w.kind === 'defensa').length, waterAreas: waterAreas.length,
-  barrios: barrios.length, buildings: buildings.length });
+  barrios: barrios.length });

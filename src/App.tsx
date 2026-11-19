@@ -36,6 +36,8 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false);
   const [catFilter, setCatFilter] = useState<FacilityCat | 'todas'>('todas');
   const [collapsed, setCollapsed] = useState({ left: false, right: false });
+  const [bld, setBld] = useState({ wet: 0, near: 0 });
+  const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
 
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -83,6 +85,12 @@ export default function App() {
           scene.setBarrioLabelState(bl.map((b) => b.status));
           setFacLive(fl);
           setBarLive(bl);
+          const cells = scene.buildingSimCell;
+          if (cells) {
+            let wet = 0, near = 0;
+            for (let k = 0; k < cells.length; k++) { const dv = m.d[cells[k]]; if (dv >= ASSUMPTIONS.wetThreshold) wet++; else if (dv >= 0.05) near++; }
+            setBld({ wet, near });
+          }
         }
       }
     };
@@ -96,8 +104,17 @@ export default function App() {
       const i = scene.pickFacility(ev.clientX, ev.clientY);
       if (i >= 0) { setSelected(i); setTab('infra'); scene.focusFacility(i); }
     };
-    scene.renderer.domElement.addEventListener('dblclick', onClick);
+    let lastMove = 0;
+    const onMove = (ev: MouseEvent) => {
+      const now = performance.now();
+      if (now - lastMove < 60) return;
+      lastMove = now;
+      const i = scene.pickFacility(ev.clientX, ev.clientY);
+      setHover(i >= 0 ? { i, x: ev.clientX, y: ev.clientY } : null);
+      scene.renderer.domElement.style.cursor = i >= 0 ? 'pointer' : '';
+    };
     scene.renderer.domElement.addEventListener('click', onClick);
+    scene.renderer.domElement.addEventListener('mousemove', onMove);
     return () => {
       worker.terminate();
       scene.dispose();
@@ -249,6 +266,7 @@ export default function App() {
         <div className="stats">
           <Stat label="Tiempo simulado" value={fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')} />
           <Stat label="Lluvia caída" value={`${(stats?.rainMm ?? 0).toFixed(0)} mm`} />
+          <Stat label="Edificios con agua ≥ 15 cm" value={bld.wet.toLocaleString('es-AR')} sub={`${bld.near.toLocaleString('es-AR')} con agua cerca · de ${(data?.buildings?.count ?? 0).toLocaleString('es-AR')}`} accent />
           <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toFixed(1)} km²`} sub="estimado" />
           <Stat label="Instalaciones" value={`${affectedCounts.afectado}`} sub={`afectadas · ${affectedCounts.atencion} en atención`} accent />
         </div>
@@ -289,6 +307,14 @@ export default function App() {
           <div className="tier-sum mono">Nivel 1º: {tierCounts[1]} · 2º: {tierCounts[2]} · 3º: {tierCounts[3]} · fuera: {tierCounts[0]}</div>
         )}
       </aside>
+
+      {hover && facilities[hover.i] && (
+        <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
+          <small>{CAT_LABEL[facilities[hover.i].cat]}</small>
+          <b>{facilities[hover.i].name}</b>
+          <span>{statusText(facLive[hover.i])}{facilities[hover.i].tier ? ` · nivel ${TIER_LABEL[facilities[hover.i].tier]}` : ''}</span>
+        </div>
+      )}
 
       {sel && (
         <div className="card">

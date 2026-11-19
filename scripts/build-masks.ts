@@ -7,7 +7,7 @@ const meta = JSON.parse(readFileSync(`${OUT_DIR}/terrain.json`, 'utf8'));
 const z = new Float32Array(readFileSync(`${OUT_DIR}/terrain.bin`).buffer.slice(0));
 const { width: w, height: h, bounds } = meta;
 const n = w * h;
-const RIVER = 1, DEFENSE = 2, WATER = 4;
+const RIVER = 1, DEFENSE = 2, WATER = 4, RIVER_CANDIDATE = 8;
 const mask = new Uint8Array(n);
 
 const toCell = (lon: number, lat: number): [number, number] => [
@@ -70,14 +70,29 @@ let defenseCells = 0;
 if (existsSync(`${OUT_DIR}/osm.json`)) {
   const osm = JSON.parse(readFileSync(`${OUT_DIR}/osm.json`, 'utf8'));
   for (const a of osm.waterAreas as { kind: string; name: string; rings: number[][][] }[]) {
-    const isParaguay = /paraguay/i.test(a.name);
     if (a.kind === 'humedal') continue; // humedales: no se fuerzan como agua permanente
-    for (const r of a.rings) if (r.length > 2) fillPolygon(r, isParaguay ? RIVER : WATER);
+    // Polígonos de río: cuentan como río Paraguay solo en celdas bajas (cauce), si no como agua permanente.
+    const isRiver = a.kind === 'rio' || /paraguay/i.test(a.name);
+    for (const r of a.rings) if (r.length > 2) fillPolygon(r, isRiver ? RIVER_CANDIDATE : WATER);
   }
   for (const l of osm.waterLines as { kind: string; c: number[][] }[]) {
     if (l.kind === 'defensa') drawLine(l.c, DEFENSE, 0);
     else if (l.kind === 'river' || l.kind === 'canal') drawLine(l.c, WATER, 0);
   }
+}
+// Cauce: polígonos de río conectados al cauce principal (por debajo de 53 m) pasan a ser río Paraguay;
+// el resto de los polígonos de río (riachos altos) queda como agua permanente.
+{
+  const stack: number[] = [];
+  for (let i = 0; i < n; i++) if (mask[i] & RIVER) stack.push(i);
+  while (stack.length) {
+    const i = stack.pop()!;
+    const x = i % w, y = (i / w) | 0;
+    for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
+      if (j >= 0 && mask[j] & RIVER_CANDIDATE && !(mask[j] & RIVER) && z[j] < 53) { mask[j] |= RIVER; stack.push(j); }
+    }
+  }
+  for (let i = 0; i < n; i++) if (mask[i] & RIVER_CANDIDATE) mask[i] = (mask[i] & ~RIVER_CANDIDATE) | (mask[i] & RIVER ? 0 : WATER);
 }
 for (let i = 0; i < n; i++) {
   if (mask[i] & RIVER) mask[i] &= ~WATER;

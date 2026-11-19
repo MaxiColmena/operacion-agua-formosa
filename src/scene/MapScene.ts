@@ -5,7 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import type { AppData, Facility, TerrainMeta } from '../data/load';
+import type { AppData, Buildings, Facility, TerrainMeta } from '../data/load';
 import { lonLatToCell } from '../data/load';
 import { MASK_DEFENSE, MASK_RIVER } from '../sim/engine';
 
@@ -101,10 +101,12 @@ export class MapScene {
 
     this.buildTerrain(data);
     this.buildRain();
-    if (data.buildings.length) this.buildBuildings(data.buildings);
+    if (data.buildings) this.buildBuildings(data.buildings);
     if (data.osm) {
       this.buildFacilities(data.osm.facilities);
       this.buildBarrioLabels(data.osm.barrios);
+      this.buildStreetLabels(data.osm.roads);
+      this.buildFacilityLabels(data.osm.facilities);
     }
 
     this.highlight = new THREE.Mesh(
@@ -289,7 +291,6 @@ export class MapScene {
     const f = this.meta.width / width;
     const geo = new THREE.PlaneGeometry(this.widthKm * (1 - 1 / width), this.heightKm * (1 - 1 / height), width - 1, height - 1);
     geo.rotateX(-Math.PI / 2);
-    void f;
     const n = width * height;
     geo.setAttribute('aDepth', new THREE.BufferAttribute(new Float32Array(n), 1));
     geo.setAttribute('aTWet', new THREE.BufferAttribute(new Float32Array(n).fill(-1), 1));
@@ -330,6 +331,24 @@ export class MapScene {
           gl_FragColor = vec4(col, a);
         }`,
     });
+    if (this.waterTex && this.bldMat) {
+      this.waterTex.dispose();
+      this.waterTex = new THREE.DataTexture(new Float32Array(n), width, height, THREE.RedFormat, THREE.FloatType);
+      this.waterTex.magFilter = THREE.NearestFilter;
+      this.waterTex.minFilter = THREE.NearestFilter;
+      this.waterTex.needsUpdate = true;
+      this.bldMat.uniforms.uWater.value = this.waterTex;
+      this.bldMat.uniforms.uThr.value = 0.15;
+    }
+    if (this.bldCentroid) {
+      const nb = this.bldCentroid.length / 2;
+      this.buildingSimCell = new Int32Array(nb);
+      for (let i = 0; i < nb; i++) {
+        const sx = Math.min(width - 1, Math.floor(this.bldCentroid[i * 2] / f));
+        const sy = Math.min(height - 1, Math.floor(this.bldCentroid[i * 2 + 1] / f));
+        this.buildingSimCell[i] = sy * width + sx;
+      }
+    }
     this.water = new THREE.Mesh(geo, this.waterMat);
     this.water.renderOrder = 2;
     this.scene.add(this.water);
@@ -357,6 +376,10 @@ export class MapScene {
       (aR.array as Float32Array)[i] = river ? 1 : 0;
     }
     pos.needsUpdate = true; aD.needsUpdate = true; aT.needsUpdate = true; aR.needsUpdate = true;
+    if (this.waterTex && this.waterTex.image.data && (this.waterTex.image.data as Float32Array).length === d.length) {
+      (this.waterTex.image.data as Float32Array).set(d);
+      this.waterTex.needsUpdate = true;
+    }
     this.waterMat.uniforms.uSimTime.value = simTime;
   }
 
@@ -365,45 +388,76 @@ export class MapScene {
   }
 
   // ---------- edificios ----------
-  private buildBuildings(list: { h: number; c: number[][] }[]) {
-    const positions: number[] = [];
+  private waterTex: THREE.DataTexture | null = null;
+  private bldMat: THREE.ShaderMaterial | null = null;
+  /** Celda de la grilla de simulación en la que cae cada edificio (se llena en initWater). */
+  buildingSimCell: Int32Array | null = null;
+  private bldCentroid: Float32Array | null = null;
+
+  private buildBuildings(b: Buildings) {
+    const pos: number[] = [];
     const rel: number[] = [];
-    for (const b of list) {
-      const ring = b.c.slice(0, b.c.length > 1 && b.c[0][0] === b.c[b.c.length - 1][0] && b.c[0][1] === b.c[b.c.length - 1][1] ? -1 : undefined);
-      if (ring.length < 3) continue;
-      const pts = ring.map(([lon, lat]) => lonLatToCell(this.meta, lon, lat));
+    const uvs: number[] = [];
+    const idx: number[] = [];
+    const cent = new Float32Array(b.count * 2);
+    const v2: THREE.Vector2[] = [];
+    for (let i = 0; i < b.count; i++) {
+      const n = b.size[i], s0 = b.start[i];
+      v2.length = 0;
       let cx = 0, cy = 0;
-      for (const p of pts) { cx += p[0]; cy += p[1]; }
-      cx /= pts.length; cy /= pts.length;
-      const base = this.cellToWorld(cx, cy, this.elevAt(cx, cy)).y;
-      const hm = b.h > 0 ? b.h : 3.5 + (Math.abs(Math.sin(cx * 12.9898 + cy * 78.233)) * 43758.5453 % 1) * 4;
-      const top = base + (hm * BLD_EXAG) / 1000;
-      const v2 = pts.map(([x, y]) => new THREE.Vector2((x / this.meta.width - 0.5) * this.widthKm, (y / this.meta.height - 0.5) * this.heightKm));
-      // Paredes
-      for (let k = 0; k < v2.length; k++) {
-        const a = v2[k], c = v2[(k + 1) % v2.length];
-        positions.push(a.x, base, a.y, c.x, base, c.y, c.x, top, c.y, a.x, base, a.y, c.x, top, c.y, a.x, top, a.y);
-        rel.push(0, 0, 1, 0, 1, 1);
+      for (let j = 0; j < n; j++) {
+        const x = b.xy[(s0 + j) * 2], y = b.xy[(s0 + j) * 2 + 1];
+        cx += x; cy += y;
+        v2.push(new THREE.Vector2((x / this.meta.width - 0.5) * this.widthKm, (y / this.meta.height - 0.5) * this.heightKm));
       }
-      // Techo
-      const tris = THREE.ShapeUtils.triangulateShape(v2, []);
-      for (const t of tris) for (const idx of t) { positions.push(v2[idx].x, top, v2[idx].y); rel.push(1.2); }
+      cx /= n; cy /= n;
+      cent[i * 2] = cx; cent[i * 2 + 1] = cy;
+      const base = this.cellToWorld(cx, cy, this.elevAt(cx, cy)).y;
+      const hm = b.height[i] > 0 ? b.height[i] : 3 + (Math.abs(Math.sin(cx * 12.9898 + cy * 78.233) * 43758.5453) % 1) * 3.5;
+      const top = base + (hm * BLD_EXAG) / 1000;
+      const u = cx / this.meta.width, v = cy / this.meta.height;
+      const o = pos.length / 3;
+      for (const p of v2) { pos.push(p.x, base, p.y); rel.push(0); uvs.push(u, v); }
+      for (const p of v2) { pos.push(p.x, top, p.y); rel.push(1); uvs.push(u, v); }
+      for (let j = 0; j < n; j++) {
+        const a = o + j, c = o + ((j + 1) % n);
+        idx.push(a, c, c + n, a, c + n, a + n);
+      }
+      const tris = n === 4 ? [[0, 1, 2], [0, 2, 3]] : THREE.ShapeUtils.triangulateShape(v2, []);
+      for (const t of tris) idx.push(o + n + t[0], o + n + t[1], o + n + t[2]);
     }
-    if (!positions.length) return;
+    if (!pos.length) return;
+    this.bldCentroid = cent;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('aRel', new THREE.Float32BufferAttribute(rel, 1));
-    const mat = new THREE.ShaderMaterial({
+    geo.setAttribute('aCell', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
+    this.waterTex = new THREE.DataTexture(new Float32Array(1), 1, 1, THREE.RedFormat, THREE.FloatType);
+    this.bldMat = new THREE.ShaderMaterial({
       transparent: true,
       side: THREE.DoubleSide,
-      uniforms: {},
-      vertexShader: `attribute float aRel; varying float vRel; void main(){ vRel = aRel; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `varying float vRel; void main(){
-        vec3 c = mix(vec3(0.05,0.12,0.25), vec3(0.2,0.75,1.0), smoothstep(0.75, 1.0, vRel));
-        if (vRel > 1.1) c = vec3(0.12,0.35,0.55);
-        gl_FragColor = vec4(c, vRel > 1.1 ? 0.85 : 0.75); }`,
+      uniforms: { uWater: { value: this.waterTex }, uThr: { value: 0.15 }, uTime: { value: 0 } },
+      vertexShader: /* glsl */ `
+        attribute float aRel; attribute vec2 aCell;
+        uniform sampler2D uWater;
+        varying float vRel; varying float vDepth;
+        void main() {
+          vRel = aRel;
+          vDepth = texture2D(uWater, vec2(aCell.x, 1.0 - aCell.y)).r;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uThr; uniform float uTime;
+        varying float vRel; varying float vDepth;
+        void main() {
+          vec3 wall = mix(vec3(0.03, 0.08, 0.17), vec3(0.1, 0.38, 0.55), smoothstep(0.7, 1.0, vRel));
+          if (vDepth >= uThr) wall = mix(vec3(0.35, 0.03, 0.08), vec3(1.0, 0.25, 0.35), smoothstep(0.5, 1.0, vRel) * (0.8 + 0.2 * sin(uTime * 4.0)));
+          else if (vDepth >= 0.05) wall = mix(vec3(0.3, 0.2, 0.02), vec3(1.0, 0.75, 0.2), smoothstep(0.6, 1.0, vRel));
+          gl_FragColor = vec4(wall, 0.95);
+        }`,
     });
-    this.buildings = new THREE.Mesh(geo, mat);
+    this.buildings = new THREE.Mesh(geo, this.bldMat);
     this.buildings.renderOrder = 1;
     this.scene.add(this.buildings);
   }
@@ -434,6 +488,7 @@ export class MapScene {
   }
 
   setFacilityStatus(status: FacilityStatus[]) {
+    this.facilityLabels.forEach((o) => { o.element.dataset.state = status[o.userData.index] ?? 'seco'; });
     if (!this.beams || !this.bases) return;
     status.forEach((s, i) => {
       this.beams!.setColorAt(i, STATUS_COLOR[s]);
@@ -494,6 +549,47 @@ export class MapScene {
       this.scene.add(obj);
     }
   }
+  private streetLabels: CSS2DObject[] = [];
+  private facilityLabels: CSS2DObject[] = [];
+
+  /** Un rótulo por avenida o calle principal con nombre, en el medio de su tramo más largo. */
+  private buildStreetLabels(roads: { k: number; n?: string; c: number[][] }[]) {
+    const best = new Map<string, { len: number; c: number[][] }>();
+    for (const r of roads) {
+      if (!r.n || r.c.length < 2) continue;
+      let len = 0;
+      for (let i = 1; i < r.c.length; i++) len += Math.hypot(r.c[i][0] - r.c[i - 1][0], r.c[i][1] - r.c[i - 1][1]);
+      const cur = best.get(r.n);
+      if (!cur || len > cur.len) best.set(r.n, { len, c: r.c });
+    }
+    for (const [name, { c, len }] of best) {
+      if (len < 0.004) continue; // tramos de menos de ~400 m no se rotulan
+      const mid = c[Math.floor(c.length / 2)];
+      const el = document.createElement('div');
+      el.className = 'street-label';
+      el.textContent = name;
+      const obj = new CSS2DObject(el);
+      obj.position.copy(this.lonLatToWorld(mid[0], mid[1], 0.02));
+      this.streetLabels.push(obj);
+      this.scene.add(obj);
+    }
+  }
+
+  /** Rótulos permanentes para hospitales; el resto se ve al pasar el mouse. */
+  private buildFacilityLabels(list: Facility[]) {
+    list.forEach((f, i) => {
+      if (f.cat !== 'hospital' || f.name.startsWith('(')) return;
+      const el = document.createElement('div');
+      el.className = 'facility-label';
+      el.textContent = '✚ ' + f.name;
+      const obj = new CSS2DObject(el);
+      obj.position.copy(this.facilityPos[i]).add(new THREE.Vector3(0, CAT_HEIGHT.hospital + 0.03, 0));
+      obj.userData.index = i;
+      this.facilityLabels.push(obj);
+      this.scene.add(obj);
+    });
+  }
+
   setBarrioLabelState(state: ('seco' | 'atencion' | 'afectado')[]) {
     this.labels.forEach((l, i) => { l.element.dataset.state = state[i] ?? 'seco'; });
   }
@@ -541,6 +637,8 @@ export class MapScene {
     this.terrainMat.uniforms.uShowLines.value = l.lines ? 1 : 0;
     if (this.buildings) this.buildings.visible = l.buildings;
     this.labels.forEach((o) => (o.visible = l.labels));
+    this.streetLabels.forEach((o) => (o.visible = l.lines && l.labels));
+    this.facilityLabels.forEach((o) => (o.visible = l.labels));
   }
 
   // ---------- ciclo ----------
@@ -560,6 +658,7 @@ export class MapScene {
     const t = this.clock.elapsedTime;
     this.terrainMat.uniforms.uTime.value = t;
     if (this.waterMat) this.waterMat.uniforms.uTime.value = t;
+    if (this.bldMat) this.bldMat.uniforms.uTime.value = t;
     if (this.fly) {
       this.fly.t = Math.min(1, this.fly.t + dt * 1.2);
       const e = 1 - Math.pow(1 - this.fly.t, 3);
@@ -575,6 +674,26 @@ export class MapScene {
     this.controls.update();
     this.composer.render();
     this.labelRenderer.render(this.scene, this.camera);
+    if (++this.frame % 12 === 0) this.declutter();
+  };
+
+  private frame = 0;
+  /** Oculta rótulos que se pisan: primero hospitales, después barrios, después calles. */
+  private declutter() {
+    const kept: DOMRect[] = [];
+    const far = this.camera.position.distanceTo(this.controls.target) > 9;
+    for (const group of [this.facilityLabels, this.labels, this.streetLabels]) {
+      for (const o of group) {
+        const el = o.element;
+        if (!o.visible) continue;
+        if (group === this.streetLabels && far) { el.classList.add('declutter'); continue; }
+        const r = el.getBoundingClientRect();
+        if (!r.width) continue;
+        const hit = kept.some((k) => r.left < k.right + 4 && r.right > k.left - 4 && r.top < k.bottom + 2 && r.bottom > k.top - 2);
+        el.classList.toggle('declutter', hit);
+        if (!hit) kept.push(r);
+      }
+    }
   };
 
   dispose() {
