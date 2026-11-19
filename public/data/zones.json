@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-19T18:45:49.620Z",
+  "generated": "2026-11-19T18:53:17.585Z",
   "resolution": "30 m",
   "threshold": 0.15,
   "levels": [
@@ -25,18 +25,18 @@
   "stats": [
     {
       "id": "n1",
-      "km2": 7.3,
-      "seconds": 40
+      "km2": 3.09,
+      "seconds": 34
     },
     {
       "id": "n2",
-      "km2": 60.15,
-      "seconds": 81
+      "km2": 56.73,
+      "seconds": 67
     },
     {
       "id": "n3",
-      "km2": 86.84,
-      "seconds": 87
+      "km2": 82.97,
+      "seconds": 88
     }
   ]
 }

@@ -464,8 +464,8 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
         <h3>Supuestos declarados</h3>
         <table>
           <tbody>
-            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Estimado: superficie del río en el MDE menos una altura típica. <b>Falta el dato oficial del INA.</b></td></tr>
-            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Supuesto (≈ 11,7 m de escala, por encima de 1983). Traza de OSM, si existe.</td></tr>
+            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Estimado: superficie del río en el MDE (mediana 50,0 m) menos una altura típica de la escala (3,7 m). <b>Falta el dato oficial del INA.</b></td></tr>
+            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Supuesto (≈ 11,7 m de escala, por encima de 1983). Solo un tramo cerca del puerto está cargado en OpenStreetMap; el resto de los ~20 km no actúa como barrera.</td></tr>
             <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>No hay datos públicos de la red pluvial. Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
             <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
             <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
@@ -479,7 +479,7 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
             <tr><td><span className="tag tag-obs">OBSERVADO</span></td><td>Río Paraguay en Puerto Formosa: {RIVER_REF.observed.stage} m el {RIVER_REF.observed.date} ({RIVER_REF.observed.trend}). {RIVER_REF.observed.source}.</td></tr>
             <tr><td><span className="tag tag-obs">REFERENCIA INA</span></td><td>Alerta {RIVER_REF.alert} m · Evacuación {RIVER_REF.evacuation} m (Puerto Formosa). Récord de 1983: {RIVER_REF.record1983} m.</td></tr>
             <tr><td><span className="tag tag-ina">PREVISIÓN INA</span></td><td>No se integra en vivo. Consultar <a href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer">alerta.ina.gob.ar</a> y cargar el valor como escenario.</td></tr>
-            <tr><td><span className="tag">TERRENO</span></td><td>{data?.meta.source}. Modelo de superficie (incluye árboles y techos): se atenúa con un filtro. Precisión vertical de algunos metros.</td></tr>
+            <tr><td><span className="tag">TERRENO</span></td><td>{data?.meta.source}. Terreno desnudo estimado con aprendizaje automático a partir de un modelo satelital de superficie: puede quedar algún resto de edificios o árboles. Precisión vertical de 1 a 2 m en zonas planas.</td></tr>
             <tr><td><span className="tag">BASE</span></td><td>{data?.osm?.source ?? 'OpenStreetMap (no cargado)'}: infraestructura, calles, riachos, barrios y edificios.</td></tr>
           </tbody>
         </table>

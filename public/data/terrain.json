@@ -10,6 +10,6 @@
   "cellX": 27.764257911868636,
   "cellY": 30.705555555555556,
   "min": 49,
-  "max": 63.701210021972656,
-  "source": "Copernicus DEM GLO-30 (ESA, 2021) · tile S27 W059 · terreno desnudo aprox.: apertura morfológica con disco de ~200 m (solo baja objetos >0,3 m) + suavizado gaussiano 3x3"
+  "max": 63.88624954223633,
+  "source": "FABDEM v1-2 (Univ. de Bristol / Fathom, CC BY-NC-SA 4.0) · Copernicus GLO-30 sin edificios ni bosques · tile S27 W059 · suavizado gaussiano 3x3"
 }

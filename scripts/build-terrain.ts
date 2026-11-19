@@ -1,6 +1,8 @@
-// Recorta el MDE Copernicus GLO-30 a Formosa Capital y lo exporta como Float32 binario.
+// Recorta el modelo de terreno a Formosa Capital y lo exporta como Float32 binario.
 //
-// GLO-30 es un modelo de SUPERFICIE (DSM): en la ciudad los techos grandes, tanques
+// Fuente preferida: FABDEM v1-2 (Copernicus con edificios y bosques removidos con aprendizaje
+// automático; Hawker et al. 2022). Ya es terreno desnudo: solo se aplica un suavizado gaussiano 3x3.
+// Respaldo: Copernicus GLO-30. GLO-30 es un modelo de SUPERFICIE (DSM): en la ciudad los techos grandes, tanques
 // y arboledas aparecen como lomas falsas de 2–5 m. Como Formosa es una llanura casi
 // plana, aproximamos el terreno desnudo con:
 //   1. Apertura morfológica (erosión gris + dilatación) con disco de 7 celdas de diámetro (~200 m):
@@ -11,7 +13,7 @@
 //   3. Suavizado gaussiano 3x3 y min(original): nunca queda por encima del DSM.
 import { fromFile } from 'geotiff';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { BBOX, DEM_FILE, OUT_DIR } from './config';
+import { BBOX, DEM_FILE, DEM_IS_FABDEM, OUT_DIR } from './config';
 
 const tiff = await fromFile(DEM_FILE);
 const img = await tiff.getImage();
@@ -46,7 +48,8 @@ function rankFilter(src: Float32Array, useMin: boolean): Float32Array {
   return out;
 }
 
-const opened = rankFilter(rankFilter(raw, true), false);
+// FABDEM ya no tiene edificios: la apertura se saltea (opened = raw).
+const opened = DEM_IS_FABDEM ? raw : rankFilter(rankFilter(raw, true), false);
 
 // Solo bajar: corrección ponderada según la altura del objeto removido.
 const cleaned = new Float32Array(w * h);
@@ -80,7 +83,9 @@ const meta = {
   cellX: Math.abs(rx) * 111320 * Math.cos((north * Math.PI) / 180),
   cellY: Math.abs(ry) * 110540,
   min, max,
-  source: 'Copernicus DEM GLO-30 (ESA, 2021) · tile S27 W059 · terreno desnudo aprox.: apertura morfológica con disco de ~200 m (solo baja objetos >0,3 m) + suavizado gaussiano 3x3',
+  source: DEM_IS_FABDEM
+    ? 'FABDEM v1-2 (Univ. de Bristol / Fathom, CC BY-NC-SA 4.0) · Copernicus GLO-30 sin edificios ni bosques · tile S27 W059 · suavizado gaussiano 3x3'
+    : 'Copernicus DEM GLO-30 (ESA, 2021) · tile S27 W059 · terreno desnudo aprox.: apertura morfológica con disco de ~200 m (solo baja objetos >0,3 m) + suavizado gaussiano 3x3',
 };
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(`${OUT_DIR}/terrain.bin`, Buffer.from(elev.buffer));

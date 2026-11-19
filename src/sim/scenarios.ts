@@ -5,11 +5,12 @@ import type { Assumptions, Scenario } from './engine';
  * Cada valor es un SUPUESTO declarado, no un dato oficial.
  */
 export const ASSUMPTIONS: Assumptions = {
-  // Superficie del río en el MDE (~49,5 m) menos una altura típica de la escala durante la toma (~3,7 m).
+  // Superficie del río en el MDE (mediana medida en las celdas del cauce: 50,0 m, EGM2008) menos una
+  // altura típica de la escala durante la toma satelital (~3,7 m).
   // Falta el cero de escala IGN oficial de Puerto Formosa (INA): reemplazar cuando se consiga.
-  gaugeZero: 45.8,
+  gaugeZero: 46.3,
   // Defensa pensada por encima de la crecida de 1983 (10,73 m): coronamiento supuesto ≈ 11,7 m de escala.
-  defenseCrest: 57.5,
+  defenseCrest: 58.0,
   manning: 0.045,
   wetThreshold: 0.15,
   drainFactorHighRiver: 0.4,

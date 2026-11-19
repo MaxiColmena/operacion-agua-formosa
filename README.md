@@ -26,11 +26,21 @@ Los datos procesados ya están en `public/data/`. Para regenerarlos desde cero:
 npm run data       # MDE → OSM → máscaras → zonas 1º/2º/3º (unos 5 minutos)
 ```
 
-`npm run data:dem` espera el tile Copernicus en `data-raw/cop_S27.tif`. Se descarga así:
+`npm run data:dem` usa **FABDEM** (terreno sin edificios ni bosques) si está en `data-raw/`, y si no, Copernicus GLO-30. FABDEM se baja con un script que pide solo el tile de Formosa (~14 MB) dentro del zip de 2,1 GB de la Universidad de Bristol. Tarda unos 7 minutos porque el servidor es lento:
+
+```bash
+python scripts/fetch-fabdem.py
+```
+
+Respaldo con Copernicus (modelo de superficie, el script le aplica un filtro para bajar techos y árboles):
 
 ```bash
 curl -o data-raw/cop_S27.tif https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_S27_00_W059_00_DEM/Copernicus_DSM_COG_10_S27_00_W059_00_DEM.tif
 ```
+
+Los edificios vienen de Microsoft Global ML Building Footprints. El script `build-buildings` espera los archivos `data-raw/msb_*.csv.gz` del quadkey 210301321 (Argentina y Paraguay), que figuran en el índice `https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv`.
+
+**Licencias de datos:** FABDEM CC BY-NC-SA 4.0 (Hawker et al. 2022, Univ. de Bristol / Fathom; uso no comercial), OpenStreetMap ODbL, Microsoft Building Footprints ODbL.
 
 ### Qué se puede hacer
 
@@ -53,7 +63,7 @@ curl -o data-raw/cop_S27.tif https://copernicus-dem-30m.s3.amazonaws.com/Coperni
 | Interfaz | `src/App.tsx` | Paneles de escenario, orden de afectación, capas y supuestos |
 | Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua) y `build-zones` (zonas 1º/2º/3º a 30 m) |
 
-**Supuesto clave a reemplazar:** el **cero de escala de Puerto Formosa** (se usa 45,8 m, estimado desde el MDE). Cuando se consiga el valor oficial del INA, se cambia en `src/sim/scenarios.ts` y se corre `npm run data:zones`.
+**Supuesto clave a reemplazar:** el **cero de escala de Puerto Formosa** (se usa 46,3 m, estimado desde la superficie del río en el MDE). Cuando se consiga el valor oficial del INA, se cambia en `src/sim/scenarios.ts` y se corre `npm run data:zones`.
 
 ---
 
