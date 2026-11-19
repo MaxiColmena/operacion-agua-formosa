@@ -35,6 +35,7 @@ export default function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [catFilter, setCatFilter] = useState<FacilityCat | 'todas'>('todas');
+  const [collapsed, setCollapsed] = useState({ left: false, right: false });
 
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -167,7 +168,8 @@ export default function App() {
         </div>
       </header>
 
-      <aside className="panel left">
+      <aside className={`panel left ${collapsed.left ? 'collapsed' : ''}`}>
+        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, left: !c.left }))} title="Mostrar u ocultar">{collapsed.left ? '›' : '‹'}</button>
         <h2>Escenario</h2>
         <div className="presets">
           {PRESETS.map((p) => (
@@ -242,7 +244,8 @@ export default function App() {
         </div>
       </aside>
 
-      <aside className="panel right">
+      <aside className={`panel right ${collapsed.right ? 'collapsed' : ''}`}>
+        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, right: !c.right }))} title="Mostrar u ocultar">{collapsed.right ? '‹' : '›'}</button>
         <div className="stats">
           <Stat label="Tiempo simulado" value={fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')} />
           <Stat label="Lluvia caída" value={`${(stats?.rainMm ?? 0).toFixed(0)} mm`} />

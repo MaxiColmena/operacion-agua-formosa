@@ -116,6 +116,17 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 .timeline .bar em { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); }
 .timeline .row { color: var(--muted); }
 
+.collapse {
+  position: absolute; top: 10px; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-solid);
+  color: var(--cyan); font-size: 16px; line-height: 1; z-index: 1;
+}
+.panel.left .collapse { right: 10px; }
+.panel.right .collapse { left: 10px; }
+.panel.right .stats { margin-top: 26px; }
+.panel.collapsed { width: 46px !important; padding: 0; overflow: hidden; bottom: auto; height: 46px; }
+.panel.collapsed > *:not(.collapse) { display: none !important; }
+.panel.collapsed .collapse { left: 10px; right: auto; }
+
 /* ---------- panel derecho ---------- */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 .stat { padding: 10px; border-radius: 10px; background: rgba(56, 232, 255, 0.05); border: 1px solid var(--line); }
