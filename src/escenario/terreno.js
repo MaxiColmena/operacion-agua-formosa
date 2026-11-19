@@ -305,12 +305,15 @@ export function crearModelo(geo = null) {
   const columnas = COLUMNAS;
   const filas = FILAS;
 
+  // La lluvia que cae dentro del anillo sale por compuertas y bombas: los bajos se calculan
+  // sobre el terreno SIN la defensa (si no, toda la ciudad sería una pileta del alto del terraplén).
+  const profundidadBajos = calcularProfundidadDeBajos({ cota: base.cotaTerreno, esRio: base.esRio, columnas, filas });
   const precalculo = {};
   for (const conFalla of [false, true]) {
     const cota = cotaConDefensa(base, conFalla);
     precalculo[conFalla ? 'falla' : 'normal'] = {
       desborde: calcularCotaDeDesborde({ cota, esRio: base.esRio, columnas, filas }),
-      profundidadBajos: calcularProfundidadDeBajos({ cota, esRio: base.esRio, columnas, filas }),
+      profundidadBajos,
     };
   }
 

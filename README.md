@@ -54,6 +54,10 @@ Si Google falla (clave mala, sin internet, etc.), la app avisa y pasa sola al mo
 | **Cuánta agua** | Mover el nivel del río (2 a 11,5 m) y la lluvia (0 a 250 mm) en cualquier momento. Queda "agua a mano" hasta que se cambia el día o se toca "Volver a los valores del caso" |
 | **Falla de la defensa** | Abre una brecha en el anillo ficticio y muestra qué se afecta antes |
 | **Vista** | Altura visual del agua, calles, plazas y nombres |
+| **Observado / previsión / escenario** | Tres etiquetas siempre visibles, como pide la guía: el **dato observado** del INA (4,70 m, aguas medias, 19/11/2026), la **previsión del INA** (~4,55 m ± 0,3 al 25/11) y el **escenario del usuario** (ficticio). El escenario se compara solo con los umbrales oficiales (alerta y evacuación), sin inventar categorías |
+| **Supuestos e incertidumbre** | Cada caso dice cuánto sube el río y en cuánto tiempo. Junto al resultado: "confianza baja", horizonte del escenario y los 4 límites principales |
+| **Zonas a evaluar** | La infraestructura se marca como *evaluar* (expuesta en el escenario) o *vigilar* (a menos de 0,60 m), no como "afectada" |
+| **Fuentes y datos** | Panel con cada fuente, su tipo (observado, estimado, referencia, base, ficticio), fecha y enlace. Los datos reales están en `src/escenario/datos-observados.js` y se actualizan a mano desde el reporte diario del INA |
 | Mapa | Calles reales en neón (en rojo si están bajo agua), plazas en verde, **escuelas como cubos chicos** y **salud como cubos grandes** (rojo: afectado, amarillo: en riesgo) |
 | Panel izquierdo | Vista 2D del agua, hidrograma del caso con umbrales INA y resumen (km², infraestructura afectada) |
 | Lista de infraestructura | Ordenada por **a qué nivel del río se afecta** (el "qué se inunda primero" de la sección 2.2) |

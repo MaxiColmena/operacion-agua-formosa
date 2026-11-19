@@ -262,8 +262,9 @@ export function textoDeAyuda(info, modelo, estado) {
   if (!info || !info.picked) return null;
   if (info.layer?.id.startsWith('infra-')) {
     const item = info.object;
-    const umbralTexto = item.umbralActual > 30 ? 'no lo alcanza' : `${item.umbralActual.toFixed(2)} m`;
-    return `${item.nombre}\n${TIPOS_INFRA[item.tipo].etiqueta} · ${item.dentroDefensa ? 'dentro' : 'fuera'} de la defensa\nSe afecta por río con: ${umbralTexto}\nEstado: ${item.estado}`;
+    const umbralTexto = item.umbralActual > 30 ? 'el río no la alcanza' : `${item.umbralActual.toFixed(2)} m en la escala`;
+    const prioridad = { afectado: 'EVALUAR (expuesta en este escenario)', riesgo: 'VIGILAR (a < 0,60 m)', normal: 'sin exposición en este escenario' }[item.estado];
+    return `${item.nombre}\n${TIPOS_INFRA[item.tipo].etiqueta} · ${item.dentroDefensa ? 'dentro' : 'fuera'} de la defensa\nExpuesta al río desde: ${umbralTexto}\nPrioridad: ${prioridad}\nZona a evaluar, no veredicto (terreno ficticio)`;
   }
   if (info.layer?.id === 'agua') {
     const i = cacheAgua.datos?.celdas[info.index];
@@ -271,7 +272,7 @@ export function textoDeAyuda(info, modelo, estado) {
     const p = estado.agua.profundidad[i];
     const [lon, lat] = centroDeCelda(i);
     const origen = ['seco', 'río', 'lluvia', 'cauce'][estado.agua.origen[i]];
-    return `${lat.toFixed(4)}, ${lon.toFixed(4)} · celda de ${TAMANO_CELDA_M} m\nAgua: ${p.toFixed(2)} m (${origen})`;
+    return `${lat.toFixed(4)}, ${lon.toFixed(4)} · celda de ${TAMANO_CELDA_M} m\nLámina del escenario: ~${p.toFixed(1)} m (${origen})\nTerreno ficticio: orientativo, no medido`;
   }
   return null;
 }

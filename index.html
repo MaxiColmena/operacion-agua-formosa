@@ -18,7 +18,7 @@
       </div>
       <div class="etiquetas">
         <span class="chip chip-ficticio">ESCENARIO FICTICIO</span>
-        <span class="chip">Umbrales INA reales · Alerta 7,80 m · Evacuación 8,30 m</span>
+        <span class="chip">Umbrales INA · Alerta 7,80 m · Evacuación 8,30 m</span>
         <span class="chip" id="chip-motor">Cargando mapa…</span>
       </div>
     </header>
@@ -41,7 +41,7 @@
         <section class="tarjeta">
           <h2>Hidrograma del caso</h2>
           <canvas id="hidrograma" width="260" height="170"></canvas>
-          <p class="nota">Línea: nivel del río (m). Barras: lluvia acumulada (mm).</p>
+          <p class="nota">Línea celeste: nivel del río del escenario (m). Línea verde: dato observado INA. Barras: lluvia acumulada (mm).</p>
         </section>
         <section class="tarjeta resumen" id="resumen"></section>
       </aside>
@@ -63,6 +63,7 @@
           <summary>CASO FICTICIO</summary>
           <select id="caso"></select>
           <p class="nota" id="caso-descripcion"></p>
+          <p class="nota supuesto" id="caso-supuestos"></p>
         </details>
 
         <details class="seccion" open>
@@ -111,11 +112,19 @@
           <p class="nota">Ciudad: © colaboradores de OpenStreetMap (ODbL), datos del <span id="fecha-osm">…</span>.</p>
         </details>
 
-        <details class="seccion">
+        <details class="seccion" open>
+          <summary>FUENTES Y DATOS</summary>
+          <ul class="fuentes" id="lista-fuentes"></ul>
+          <p class="nota">Categorías del INA (frecuencia de superación 1991–2020). Solo se aplican al dato observado: los cortes en metros de Puerto Formosa no están publicados, así que el escenario se compara solo con los umbrales oficiales.</p>
+          <ul class="supuestos" id="categorias-ina"></ul>
+        </details>
+
+        <details class="seccion" open>
           <summary>SUPUESTOS Y LÍMITES</summary>
           <ul class="supuestos">
             <li>Calles, plazas, escuelas y salud son <b>reales</b> (OpenStreetMap), pero pueden faltar o estar desactualizados.</li>
-            <li>Terreno, defensa y lagunas son <b>inventados</b>: dónde cae el agua no es real.</li>
+            <li>El terreno es <b>inventado</b>: dónde cae el agua no es real. Ríos y lagunas sí están en su lugar real.</li>
+            <li>El resultado muestra <b>zonas a evaluar</b>, no qué se inunda: la decisión de alertar o evacuar es de las autoridades.</li>
             <li>Cero de la escala: 47,30 m IGN (sale de la cota oficial de la defensa: 59 m IGN = 11,70 m).</li>
             <li>Defensa: traza aproximada armada con 5 tramos reales de OSM y conectores estimados.</li>
             <li>Río: el agua llega a toda celda conectada al cauce y por debajo del nivel.</li>
@@ -126,7 +135,8 @@
         </details>
 
         <section class="tarjeta afectacion">
-          <h2>Infraestructura (orden de afectación)</h2>
+          <h2>Infraestructura a evaluar (por prioridad)</h2>
+          <p class="nota">Ordenada por el nivel del río desde el que queda expuesta. <b>Evaluar</b>: expuesta en este escenario · <b>Vigilar</b>: a menos de 0,60 m de estarlo.</p>
           <ol id="lista-infra"></ol>
         </section>
       </aside>

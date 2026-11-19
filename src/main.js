@@ -5,6 +5,7 @@ import { crearCapas, textoDeAyuda } from './mapa/capas.js';
 import { crearMotorGoogle, crearMotorSoloDeck } from './mapa/motores.js';
 import { cargarCiudad } from './mapa/ciudad.js';
 import { dibujarMinimapa, dibujarHidrograma } from './ui/graficos.js';
+import { OBSERVADO, PREVISION_INA, FUENTES, INCERTIDUMBRE, CATEGORIAS_INA } from './escenario/datos-observados.js';
 
 const $ = (id) => document.getElementById(id);
 const formato = (n, d = 2) => n.toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -108,22 +109,49 @@ function textoTiempo(t) {
   return `Hora ${h}:${String(min).padStart(2, '0')} de ${estado.caso.duracionH} h`;
 }
 
+// Relación con los umbrales oficiales del INA (no son categorías propias).
+function relacionConUmbrales(n) {
+  if (n >= UMBRALES_INA.evacuacion) return { clase: 'evacuacion', texto: `supera la evacuación INA (${formato(UMBRALES_INA.evacuacion)} m)` };
+  if (n >= UMBRALES_INA.alerta) return { clase: 'alerta', texto: `supera la alerta INA (${formato(UMBRALES_INA.alerta)} m)` };
+  return { clase: '', texto: `debajo de la alerta INA (${formato(UMBRALES_INA.alerta)} m)` };
+}
+
+// Supuestos del caso en una frase: cuánto sube el río y en cuántos días u horas.
+function supuestosDelCaso(caso) {
+  const serie = caso.serie;
+  const [t0, n0] = serie[0];
+  let pico = serie[0];
+  for (const p of serie) if (p[1] > pico[1]) pico = p;
+  const lluviaTotal = Math.max(...serie.map((p) => p[2]));
+  const enDias = caso.unidad === 'dias';
+  const plazo = (h) => (enDias ? `${Math.round(h / 24)} días` : `${formato(h, 0)} h`);
+  const rio =
+    pico[1] - n0 > 0.05
+      ? `río de ${formato(n0)} a ${formato(pico[1])} m en ${plazo(pico[0] - t0)}`
+      : `río estable en ${formato(n0)} m`;
+  return `${rio} · lluvia local ${formato(lluviaTotal, 0)} mm en ${plazo(caso.duracionH)}`;
+}
+
 function dibujarLectura() {
   const n = estado.nivel;
-  let clase = '';
-  let etiqueta = 'normal';
-  if (n >= UMBRALES_INA.evacuacion) {
-    clase = 'evacuacion';
-    etiqueta = 'sobre EVACUACIÓN';
-  } else if (n >= UMBRALES_INA.alerta) {
-    clase = 'alerta';
-    etiqueta = 'sobre ALERTA';
-  }
+  const rel = relacionConUmbrales(n);
+  const origen = estado.manual ? 'puesto a mano' : `caso: ${supuestosDelCaso(estado.caso)}`;
   $('lectura').innerHTML = `
-    <div>RÍO · PUERTO FORMOSA <span class="${clase}">(${etiqueta})</span></div>
-    <div class="grande ${clase}">${formato(n)} m</div>
-    <div>LLUVIA ACUMULADA <b>${formato(estado.lluvia, 0)} mm</b></div>
-    <div>${textoTiempo(estado.t)}${estado.manual ? ' · <span class="alerta">agua a mano</span>' : ''}</div>`;
+    <div class="bloque obs">
+      <span class="etq etq-obs">OBSERVADO</span> ${OBSERVADO.fecha} · INA
+      <div><b>${formato(OBSERVADO.nivelM)} m</b> ${OBSERVADO.tendencia} · <b>${OBSERVADO.categoriaINA}</b> (categoría INA)</div>
+    </div>
+    <div class="bloque prev">
+      <span class="etq etq-est">PREVISIÓN INA</span> al ${PREVISION_INA.hasta.slice(0, 5)}
+      <div>~${formato(PREVISION_INA.nivelFinalM)} m ± ${formato(PREVISION_INA.margenM, 1)} · leve descenso</div>
+    </div>
+    <div class="bloque esc">
+      <span class="etq etq-esc">ESCENARIO DEL USUARIO</span> ficticio
+      <div class="grande ${rel.clase}">${formato(n)} m</div>
+      <div class="${rel.clase}">${rel.texto}</div>
+      <div>Lluvia acumulada <b>${formato(estado.lluvia, 0)} mm</b> · ${textoTiempo(estado.t)}</div>
+      <div class="supuesto">Supuesto: ${origen}</div>
+    </div>`;
 }
 
 function dibujarResumen() {
@@ -134,16 +162,19 @@ function dibujarResumen() {
     if (origen[i] === 1) rio++;
     else if (origen[i] === 2) lluvia++;
   }
-  const km2 = (celdas) => formato((celdas * TAMANO_CELDA_M * TAMANO_CELDA_M) / 1e6, 2);
+  const km2 = (celdas) => formato((celdas * TAMANO_CELDA_M * TAMANO_CELDA_M) / 1e6, 1);
   const cuenta = (tipo, est) => estado.infra.filter((i) => i.tipo === tipo && i.estado === est).length;
   $('resumen').innerHTML = `
-    <h2>Resumen del momento</h2>
-    <div class="dato"><span>Área con agua de río</span><b>${km2(rio)} km²</b></div>
-    <div class="dato"><span>Área anegada por lluvia</span><b>${km2(lluvia)} km²</b></div>
-    <div class="dato"><span>Escuelas afectadas</span><b>${cuenta('escuela', 'afectado')} / ${estado.infraPorTipo.escuela.length}</b></div>
-    <div class="dato"><span>Salud afectada</span><b>${cuenta('salud', 'afectado')} / ${estado.infraPorTipo.salud.length}</b></div>
-    <div class="dato"><span>En riesgo (a &lt; 0,60 m)</span><b>${estado.infra.filter((i) => i.estado === 'riesgo').length}</b></div>
-    <p class="nota">Calles y edificios reales (OSM). El agua es de un terreno ficticio.</p>`;
+    <h2>Zonas a evaluar · escenario</h2>
+    <div class="dato"><span>Zona expuesta al río</span><b>~${km2(rio)} km²</b></div>
+    <div class="dato"><span>Zona anegable por lluvia</span><b>~${km2(lluvia)} km²</b></div>
+    <div class="dato"><span>Escuelas a evaluar</span><b>${cuenta('escuela', 'afectado')} / ${estado.infraPorTipo.escuela.length}</b></div>
+    <div class="dato"><span>Salud a evaluar</span><b>${cuenta('salud', 'afectado')} / ${estado.infraPorTipo.salud.length}</b></div>
+    <div class="dato"><span>A vigilar (a &lt; 0,60 m)</span><b>${estado.infra.filter((i) => i.estado === 'riesgo').length}</b></div>
+    <div class="confianza"><span class="etq etq-fic">CONFIANZA BAJA</span> Horizonte: escenario hipotético de ${
+      estado.caso.unidad === 'dias' ? `${Math.round(estado.caso.duracionH / 24)} días` : `${estado.caso.duracionH} h`
+    }, no es un pronóstico.</div>
+    <ul class="incertidumbre">${INCERTIDUMBRE.map((t) => `<li>${t}</li>`).join('')}</ul>`;
 }
 
 const MAX_LISTA = 60;
@@ -151,9 +182,9 @@ function dibujarLista() {
   const orden = [...estado.infra].sort((a, b) => a.umbralActual - b.umbralActual);
   const html = orden.slice(0, MAX_LISTA).map((item) => {
     const color = TIPOS_INFRA[item.tipo].color.join(',');
-    let detalle = item.umbralActual > 30 ? 'no lo alcanza el río' : `río a ${formato(item.umbralActual)} m`;
-    if (item.estado === 'afectado' && item.origenAgua === 2) detalle = 'anegado por lluvia';
-    const textoEstado = { normal: 'ok', riesgo: 'riesgo', afectado: 'afectado' }[item.estado];
+    let detalle = item.umbralActual > 30 ? 'el río no la alcanza' : `expuesta desde ${formato(item.umbralActual)} m`;
+    if (item.estado === 'afectado' && item.origenAgua === 2) detalle = 'zona anegable por lluvia';
+    const textoEstado = { normal: 'sin exposición', riesgo: 'vigilar', afectado: 'evaluar' }[item.estado];
     return `<li>
         <span class="id" style="color:rgb(${color})">${item.id}</span>
         <span>${item.nombre}<br><span class="detalle">${detalle} · ${item.dentroDefensa ? 'dentro' : 'fuera'} de la defensa</span></span>
@@ -255,6 +286,8 @@ function prepararControles() {
     $('tiempo').step = estado.caso.unidad === 'dias' ? 1 : 0.1;
     $('caso-descripcion').textContent = estado.caso.descripcion;
     $('btn-atras').title = $('btn-adelante').title = estado.caso.unidad === 'dias' ? '1 día' : '1 hora';
+    $('caso-supuestos').textContent = `Supuesto del caso: ${supuestosDelCaso(estado.caso)}.`;
+    estado.claveAgua = ''; // fuerza a redibujar el resumen (cambia el horizonte)
     irA(0);
   };
   selectorCaso.addEventListener('change', (e) => elegirCaso(e.target.value));
@@ -339,6 +372,15 @@ function prepararControles() {
   $('btn-restablecer').addEventListener('click', () => motor?.restablecer());
 }
 
+function dibujarFuentes() {
+  const enlace = (f) => (f.url ? `<a href="${f.url}" target="_blank" rel="noopener">${f.nombre}</a>` : f.nombre);
+  $('lista-fuentes').innerHTML = FUENTES.map(
+    (f) => `<li><span class="etq etq-${f.tipo.toLowerCase().slice(0, 3)}">${f.tipo}</span>
+      <div><b>${enlace(f)}</b> · ${f.fecha}<br><span class="detalle">${f.que}</span></div></li>`,
+  ).join('');
+  $('categorias-ina').innerHTML = CATEGORIAS_INA.map(([c, d]) => `<li><b>${c}</b>: ${d}</li>`).join('');
+}
+
 function mostrarAviso(texto) {
   const aviso = $('aviso');
   aviso.innerHTML = `${texto}<br><small>(clic para cerrar)</small>`;
@@ -370,6 +412,7 @@ async function iniciarMapa() {
 }
 
 prepararControles();
+dibujarFuentes();
 await iniciarMapa();
 try {
   ciudad = await cargarCiudad();

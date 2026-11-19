@@ -2,6 +2,7 @@
 
 import { COLUMNAS, FILAS, UMBRALES_INA } from '../escenario/datos-ficticios.js';
 import { colorEstadoInfra } from '../mapa/capas.js';
+import { OBSERVADO } from '../escenario/datos-observados.js';
 
 const lienzoBase = document.createElement('canvas');
 lienzoBase.width = COLUMNAS;
@@ -107,6 +108,17 @@ export function dibujarHidrograma(canvas, caso, tActual, manual) {
     c.fillStyle = color;
     c.fillText(nombre, nombre === 'alerta' ? m.izq + 4 : W - m.der - 34, yNivel(valor) + (nombre === 'alerta' ? 10 : -3));
   }
+
+  // Dato OBSERVADO (INA) como referencia, distinto del escenario.
+  c.strokeStyle = '#7dff9a';
+  c.setLineDash([2, 3]);
+  c.beginPath();
+  c.moveTo(m.izq, yNivel(OBSERVADO.nivelM));
+  c.lineTo(W - m.der, yNivel(OBSERVADO.nivelM));
+  c.stroke();
+  c.setLineDash([]);
+  c.fillStyle = '#7dff9a';
+  c.fillText(`obs. ${OBSERVADO.fecha.slice(0, 5)}`, W - m.der - 52, yNivel(OBSERVADO.nivelM) + 10);
 
   c.strokeStyle = '#4fd8ff';
   c.lineWidth = 2;

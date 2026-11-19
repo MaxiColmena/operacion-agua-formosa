@@ -236,7 +236,7 @@ select {
 }
 
 .nota {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--tenue);
   margin: 6px 0 0;
   line-height: 1.4;
@@ -443,4 +443,74 @@ canvas {
   color: var(--tenue);
   font-size: 11px;
   display: block;
+}
+
+/* Etiquetas de procedencia del dato (pedido de la guía: observado / previsión / escenario). */
+.etq {
+  display: inline-block;
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.etq-obs { color: #7dff9a; }
+.etq-est { color: #c9a8ff; }
+.etq-esc, .etq-fic { color: var(--naranja); }
+.etq-ref { color: var(--cian-suave); }
+.etq-bas { color: #b8c7d6; }
+
+.lectura {
+  max-width: 340px;
+}
+.lectura .bloque {
+  padding: 4px 0;
+}
+.lectura .bloque + .bloque {
+  border-top: 1px solid var(--borde);
+}
+.lectura .obs b { color: #7dff9a; }
+.lectura .supuesto,
+.nota.supuesto {
+  color: var(--naranja);
+  font-size: 12px;
+}
+
+.confianza {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--tenue);
+  line-height: 1.5;
+}
+.incertidumbre {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--tenue);
+  line-height: 1.45;
+}
+
+.fuentes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.fuentes li {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  gap: 6px;
+  align-items: start;
+}
+.fuentes a {
+  color: var(--cian-suave);
+}
+.fuentes .detalle {
+  color: var(--tenue);
 }
