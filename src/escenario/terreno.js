@@ -255,12 +255,18 @@ function generarTerrenoReal(geo) {
     }
   }
 
-  // 3. Cota ficticia: sube al alejarse del agua, con ruido suave.
+  // 3. Cota del terreno.
+  //    Con MDE real (geo.mde): la altura medida. El MDE ya trae lagunas y cauces, no se ahondan.
+  //    Sin MDE: cota FICTICIA que sube al alejarse del agua, con ruido suave.
   const distRio = distanciaEnCeldas(esRio);
   for (let i = 0; i < total; i++) {
     const p = centroDeCelda(i);
     if (esRio[i]) {
-      cotaTerreno[i] = CERO_ESCALA - 4;
+      cotaTerreno[i] = CERO_ESCALA - 4; // fuente del agua del río
+      continue;
+    }
+    if (geo.mde && geo.mde[i] != null) {
+      cotaTerreno[i] = geo.mde[i];
       continue;
     }
     const [mx, my] = aMetros(p, origen);
@@ -274,7 +280,7 @@ function generarTerrenoReal(geo) {
   for (const i of rasterizarAnillo(geo.defensa)) {
     esDefensa[i] = 1;
     esRio[i] = 0; // el terraplén es tierra aunque el río pase cerca
-    cotaTerreno[i] = Math.max(cotaTerreno[i], CERO_ESCALA + 6.4);
+    if (cotaTerreno[i] < CERO_ESCALA) cotaTerreno[i] = CERO_ESCALA + 6.4;
   }
   let mejorBrecha = -1;
   let distBrecha = Infinity;

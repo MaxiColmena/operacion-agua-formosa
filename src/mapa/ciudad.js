@@ -47,7 +47,7 @@ function acortar(nombre, max = 26) {
 // Ríos que traen el agua del Paraguay: el propio río y el Riacho Formosa (desemboca en él).
 // Los demás arroyos y canales son cauces bajos dentro del terreno: se llenan con lluvia.
 // Exportada para usarla igual en Node (tests) y en el navegador.
-export function armarGeografia(lineas, poligonos) {
+export function armarGeografia(lineas, poligonos, mde = null) {
   const rios = [];
   const cauces = [];
   for (const l of lineas) {
@@ -55,13 +55,25 @@ export function armarGeografia(lineas, poligonos) {
     else if (/Riacho Formosa/i.test(l.nombre)) rios.push({ linea: l.c, semiAnchoM: GEOGRAFIA.semiAnchoRiachoM });
     else if (l.tipo === 'river' || l.tipo === 'stream' || l.tipo === 'canal') cauces.push(l.c);
   }
-  return { rios, cauces, lagunas: poligonos, defensa: GEOGRAFIA.defensa, brechaCerca: GEOGRAFIA.brechaCerca };
+  return { rios, cauces, lagunas: poligonos, defensa: GEOGRAFIA.defensa, brechaCerca: GEOGRAFIA.brechaCerca, mde: mde?.cota ?? null, mdeInfo: mde };
+}
+
+// Datos opcionales: si un archivo falta, la app sigue con lo que tenga.
+async function cargarJson(ruta) {
+  try {
+    const r = await fetch(`${import.meta.env.BASE_URL}${ruta}`);
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function cargarCiudad() {
   const r = await fetch(`${import.meta.env.BASE_URL}datos/formosa-osm.json`);
   if (!r.ok) throw new Error(`No se pudo cargar formosa-osm.json (${r.status})`);
   const osm = await r.json();
+  // Terreno real (Copernicus GLO-30). Si falta, el modelo usa la cota ficticia.
+  const mde = await cargarJson('datos/terreno.json');
 
   const calles = osm.calles.map((c) => ({ ...c, celda: celdaDePunto(c.c[Math.floor(c.c.length / 2)]) }));
   calles.sort((a, b) => b.n - a.n); // las principales se dibujan arriba
@@ -83,20 +95,41 @@ export async function cargarCiudad() {
   for (const l of abiertos) if (l.some(dentroDelArea)) aguaLineas.push({ tipo: 'agua', nombre: '', c: l });
 
   // Geografía para el modelo de agua: ríos (con su semiancho) y lagunas reales.
-  const geo = armarGeografia(aguaLineas, aguaPoligonos);
+  const geo = armarGeografia(aguaLineas, aguaPoligonos, mde);
 
+  // Escuelas: padrón oficial del Mapa Educativo Nacional; si no está, las de OSM.
+  const men = await cargarJson('datos/escuelas-men.json');
+  const poblacion = await cargarJson('datos/poblacion.json');
   const infra = [];
-  osm.escuelas.forEach((e, k) => {
-    const nombre = e.nombre || 'Escuela sin nombre en OSM';
-    infra.push({ id: `E${k + 1}`, tipo: 'escuela', nombre, corto: acortar(nombre), pos: e.pos });
-  });
+  if (men) {
+    men.escuelas.forEach((e, k) => {
+      const [primero, ...resto] = e.establecimientos;
+      const nombre = resto.length ? `${primero.nombre} (+${resto.length} en el mismo edificio)` : primero.nombre;
+      infra.push({
+        id: `E${k + 1}`,
+        tipo: 'escuela',
+        nombre,
+        corto: acortar(primero.nombre),
+        pos: e.pos,
+        fuente: 'Mapa Educativo Nacional',
+        detalle: `${e.establecimientos.map((x) => `CUE ${x.cue}: ${x.niveles} (${x.gestion})`).join(' · ')} · ubicación ${e.precision.toLowerCase()}`,
+      });
+    });
+  } else {
+    osm.escuelas.forEach((e, k) => {
+      const nombre = e.nombre || 'Escuela sin nombre en OSM';
+      infra.push({ id: `E${k + 1}`, tipo: 'escuela', nombre, corto: acortar(nombre), pos: e.pos, fuente: 'OpenStreetMap' });
+    });
+  }
   osm.salud.forEach((s, k) => {
     const nombre = s.nombre || 'Centro de salud sin nombre en OSM';
-    infra.push({ id: `H${k + 1}`, tipo: 'salud', nombre, corto: acortar(nombre), pos: s.pos });
+    infra.push({ id: `H${k + 1}`, tipo: 'salud', nombre, corto: acortar(nombre), pos: s.pos, fuente: 'OpenStreetMap' });
   });
 
   return {
     fecha: osm.fecha,
+    fuentes: { escuelas: men ? 'Mapa Educativo Nacional' : 'OpenStreetMap', mde: mde?.fuente ?? null },
+    poblacion,
     calles,
     plazas,
     aguaPoligonos,

@@ -14,7 +14,11 @@ Este README junta lo investigado hasta ahora. Se actualiza a medida que el equip
 
 Mapa 3D de Formosa Capital que se puede mover, rotar e inclinar, con un **"reloj del agua"**. Funciona como la app *3D Sun-Path*, donde se mueve la hora y cambian las sombras: acá se mueve el tiempo del evento y el agua sube, baja y avanza sobre la ciudad.
 
-> ⚠️ **Qué es real y qué no:** las calles, plazas, escuelas y centros de salud son **reales** (OpenStreetMap). El terreno, la defensa, las lagunas y los casos son **ficticios**, así que dónde cae el agua no es real. También son reales los umbrales del INA (alerta 7,80 m y evacuación 8,30 m en Puerto Formosa).
+> ⚠️ **Qué es real y qué no:**
+> - **Real:** terreno (Copernicus GLO-30, 30 m), escuelas (Mapa Educativo Nacional), población y viviendas (Censo 2022), calles, salud, ríos y lagunas (OpenStreetMap), dato observado y previsión del río (INA, 19/11/2026), umbrales del INA y cota de la defensa (Gobierno de Formosa).
+> - **Aproximado:** la traza de la defensa (tramos reales de OSM + conectores estimados).
+> - **Ficticio:** los 4 casos (series de río y lluvia), la capacidad del drenaje y el lugar de la brecha.
+> - El resultado son **zonas a evaluar**, no qué se inunda: el terreno tiene ~2 m de error e incluye edificios.
 >
 > Investigación de casos reales (inundaciones, árboles y postes caídos, autos varados, electrocuciones) y propuesta de alerta a REFSA: [docs/casos-y-alerta-refsa.md](docs/casos-y-alerta-refsa.md).
 
@@ -30,8 +34,14 @@ npm test           # tests del cálculo de agua (Vitest)
 **Sin clave de Google** arranca con el mapa de **OpenStreetMap**: calles, plazas, escuelas y salud reales, guardados en `public/datos/formosa-osm.json`. Para actualizar esos datos:
 
 ```bash
-node scripts/bajar-osm.mjs   # consulta Overpass por partes; guarda cada parte en data/raw/
+node scripts/bajar-osm.mjs       # calles, salud, ríos y defensa (OpenStreetMap, Overpass)
+node scripts/bajar-mde.mjs       # terreno (Copernicus GLO-30) → public/datos/terreno.json
+node scripts/bajar-escuelas.mjs  # escuelas (Mapa Educativo Nacional, WFS) → public/datos/escuelas-men.json
+# Censo 2022: bajar una vez data/raw/radios.parquet (ver el script) y después:
+node scripts/procesar-censo.mjs  # población por celda → public/datos/poblacion.json
 ```
+
+El MDE-Ar del IGN (el que recomienda la guía) no tiene descarga automática: el IGN publica su MDE de 5 m de Formosa (2016) solo como imagen WMS, sin las alturas. Por eso usamos Copernicus GLO-30. Conseguir el MDE-Ar o el de 5 m en GeoTIFF es la mejora más importante pendiente.
 
 **Con Google Maps:**
 1. En Google Cloud, activar **Maps JavaScript API** y crear una **API key**. Restringirla por *HTTP referrer* (por ejemplo `http://localhost:5173/*`).
@@ -65,7 +75,7 @@ Si Google falla (clave mala, sin internet, etc.), la app avisa y pasa sola al mo
 
 ### Cómo calcula el agua (resumen)
 
-- **Geografía:** el Río Paraguay (franja de ~460 m sobre su línea en OSM) y el Riacho Formosa traen el agua del río. Las lagunas, bañados, arroyos y canales reales son bajos que se llenan con lluvia. La cota del terreno es **ficticia**: sube al alejarse del agua. La **defensa** es una traza aproximada del anillo real (5 tramos de OSM + conectores estimados, ~23,5 km) con el **coronamiento oficial de 11,70 m** en la escala del puerto. Detalle y fuentes en `src/escenario/defensa-formosa.js`.
+- **Geografía:** el Río Paraguay (franja de ~460 m sobre su línea en OSM) y el Riacho Formosa traen el agua del río. Las lagunas, bañados, arroyos y canales reales son bajos que se llenan con lluvia. La cota del terreno sale de **Copernicus GLO-30** (percentil 20 de los píxeles de 30 m en cada celda de ~87 m, para restar edificios y árboles). Los bajos para la lluvia se calculan sin la defensa, porque la lluvia de adentro sale por compuertas y bombas. La **defensa** es una traza aproximada del anillo real (5 tramos de OSM + conectores estimados, ~23,5 km) con el **coronamiento oficial de 11,70 m** en la escala del puerto. Detalle y fuentes en `src/escenario/defensa-formosa.js`.
 - **Río:** se precalcula para cada celda la **cota mínima que tiene que alcanzar el río para llegar hasta ella** (camino desde el cauce con *priority-flood*). La defensa actúa como barrera. Después, cualquier nivel del río se resuelve al instante.
 - **Lluvia:** se calcula cuánta agua junta cada bajo del terreno. Lo que supera la capacidad del drenaje (45 mm, o 20 mm con el río ≥ 6,5 m porque las bombas no dan abasto) va llenando los bajos.
 - Código: `src/escenario/inundacion.js` (algoritmos, con tests) y `src/escenario/datos-ficticios.js` (todo lo inventado, en un solo lugar para reemplazarlo por datos reales).
@@ -77,9 +87,10 @@ index.html                 interfaz (paneles estilo Sun-Path)
 src/main.js                estado, controles y reproducción
 src/escenario/             terreno ficticio, casos y cálculo del agua
 src/mapa/capas.js          capas 3D (deck.gl): calles, plazas, agua (cubos por celda), defensa, escuelas y salud
-src/mapa/ciudad.js         carga la ciudad real de OpenStreetMap
+src/mapa/ciudad.js         carga ciudad (OSM), terreno, escuelas y censo
+src/escenario/datos-observados.js  dato observado, previsión INA y lista de fuentes
 src/mapa/motores.js        Google Maps vectorial + deck.gl, o deck.gl solo
-scripts/bajar-osm.mjs      descarga y simplifica los datos de OSM
+scripts/                   descarga y procesamiento de datos (OSM, MDE, escuelas, censo)
 public/datos/              ciudad real ya procesada (© OpenStreetMap, ODbL)
 docs/casos-y-alerta-refsa.md  casos reales y diseño de la alerta a REFSA
 src/ui/graficos.js         minimapa 2D e hidrograma
@@ -88,7 +99,7 @@ tests/                     tests del cálculo (Vitest)
 
 ### Probado
 
-- `npm test`: 14 tests en verde (incluye el modelo sobre la geografía real).
+- `npm test`: 15 tests en verde (incluye el modelo con terreno real, crecidas de 2015 y 1983 y la falla de la defensa).
 - `npm run build`: compila sin errores.
 - Navegador: carga la ciudad real, cambio de día con ◀ ▶, agua a mano, falla de la defensa y reproducción (~50 cuadros por segundo), sin errores en la consola.
 - Las capturas de abajo son de la versión anterior (ciudad ficticia).
@@ -379,28 +390,32 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 ## 11. Dónde entra la IA (y dónde no)
 
-**Sí:**
-- **Susceptibilidad aprendida:** clasificador (Random Forest o XGBoost) entrenado con manchas de agua reales de Sentinel-1 (por ejemplo, 2015-16 y 2026) y variables como altura, HAND, pendiente, distancia al río o riacho, uso del suelo, impermeabilización y si la zona está dentro o fuera de la defensa. La literatura reciente usa justamente Sentinel-1 en Earth Engine y modelos de árboles para mapear susceptibilidad en ciudades con pocos datos.
-- **Explicabilidad:** SHAP para mostrar **por qué** una zona tiene prioridad alta.
-- **Asistente en lenguaje natural (opcional):** "¿Qué escuelas quedan expuestas con el río a 8,5 m?" → consulta a los datos precalculados. **Nunca** inventa números: solo lee lo que calculó el modelo.
+**Estado real del prototipo (19/11/2026): no usa un modelo de IA.** Lo que calcula el agua es un **modelo determinístico** (inundación "por bañadera conectada" con *priority-flood* sobre el terreno real), que se puede explicar y verificar paso a paso. Preferimos decirlo así antes que agregar IA "porque sí", como pide la guía.
+
+**Dónde sí usamos IA hoy:** como **asistente del equipo** (Claude) para investigar fuentes, leer reportes del INA, reconstruir la traza de la defensa y programar. Todo dato que entró al prototipo tiene su fuente y fecha en pantalla, y lo revisamos nosotros.
+
+**Dónde agregaría valor real (próxima etapa, solo si mejora la validación):**
+- **Susceptibilidad aprendida:** un clasificador (Random Forest o XGBoost) entrenado con manchas de agua observadas por satélite (Sentinel-1, crecidas 2015-16 y 2026) y variables como altura, distancia al río, pendiente y si la zona está dentro o fuera de la defensa. **Criterio para incorporarlo:** que reproduzca el mapa de inundación de CONAE del 12/01/2016 mejor que el modelo de bañadera. Si no lo mejora, no entra.
+- **Explicabilidad:** SHAP para mostrar **por qué** una zona tiene prioridad.
+- **Clasificar denuncias ciudadanas** (texto y foto) para la alerta a REFSA: "cable en el agua", "poste caído", "calle anegada". Ver [docs/casos-y-alerta-refsa.md](docs/casos-y-alerta-refsa.md).
 
 **No:**
 - La IA **no predice** el nivel del río. Eso es del INA.
-- La IA **no decide** evacuaciones. Esa decisión es humana, según la consigna.
+- La IA **no decide** evacuaciones ni cortes de luz. Esa decisión es humana, según la consigna.
 
 ---
 
-## 12. Borrador: las 7 preguntas de la consigna
+## 12. Las 7 preguntas de la consigna (respuestas según el prototipo actual)
 
-| # | Pregunta | Borrador de respuesta |
+| # | Pregunta | Respuesta |
 |---|---|---|
-| 01 | ¿Quién la usaría? | Operador o técnico de Defensa Civil o del municipio que prepara la respuesta ante una crecida o temporal |
-| 02 | ¿Qué necesidad atiende? | Saber **qué infraestructura crítica revisar primero** según qué tan alto llegue el río o cuánto llueva |
-| 03 | ¿Función principal? | Mover el **nivel del río y la lluvia** y ver en 3D las zonas y los edificios críticos a evaluar, ordenados por prioridad |
-| 04 | ¿Qué datos y de dónde? | INA, SMN, MDE-Ar o FABDEM, Mapa Educativo, REFES, OSM, Censo 2022, Sentinel-1 y mapas CONAE 2016 (sección 7) |
-| 05 | ¿Qué se muestra al jurado? | "Subo el río de 5,5 m (hoy) a 8,30 m (evacuación) → aparecen las escuelas y centros de salud que quedan expuestos, en orden, con sus supuestos visibles" |
-| 06 | ¿Qué no podemos asegurar? | Qué manzana se inunda ni en cuánto tiempo. No conocemos los desagües ni el estado de las bombas. Error del MDE ~2 m (sección 13) |
-| 07 | ¿Por qué IA o tecnología? | Junta en segundos datos que hoy están dispersos. La IA aprende de inundaciones reales de Formosa y explica por qué prioriza. El 3D hace entendible el riesgo para quien no es técnico |
+| 01 | ¿Quién la usaría? | Un operador o técnico de **Defensa Civil, el municipio o el comité de emergencia** que prepara la respuesta ante una crecida del Paraguay o un temporal |
+| 02 | ¿Qué necesidad atiende? | Saber **qué zonas, escuelas, centros de salud y cuánta gente** conviene evaluar primero según cuánto suba el río o cuánto llueva, antes de que pase |
+| 03 | ¿Función principal? | Elegir un escenario (caso o valores a mano, día por día) y ver en un mapa 3D de Formosa las **zonas a evaluar**, la infraestructura ordenada por prioridad y la población expuesta, con el dato observado del INA al lado |
+| 04 | ¿Qué datos y de dónde? | **INA** (nivel observado, previsión y umbrales), **Copernicus GLO-30** (terreno), **Mapa Educativo Nacional** (escuelas), **Censo 2022** (población), **OpenStreetMap** (calles, salud, ríos, tramos de defensa) y **Gobierno de Formosa** (cota de la defensa). Todo con fecha y tipo en el panel "Fuentes y datos" |
+| 05 | ¿Qué se muestra al jurado? | 1) Hoy: el río está en **4,70 m** (observado, aguas medias). 2) Paso a **8,30 m** (evacuación): aparecen los bañados y los barrios de afuera del anillo, **~7.100 personas** y 3 escuelas a evaluar. 3) Activo la **falla de la defensa sur**: entra agua a la ciudad (~8.000 personas). 4) Vuelvo el río a 4,70 m y pongo **140 mm de lluvia**: se anegan calles del oeste y el centro, como en 2025 (**~14.000 personas, 22 escuelas, 6 centros de salud**). 5) Muestro las fuentes y los límites en pantalla |
+| 06 | ¿Qué no podemos asegurar? | **Qué manzana se inunda ni cuándo.** El terreno es de 30 m con ~2 m de error e incluye edificios. La traza de la defensa es aproximada. No conocemos el estado de bombas y compuertas. La escala del río mide un solo punto. Por eso mostramos zonas a evaluar, no veredictos |
+| 07 | ¿Por qué IA o tecnología? | La **tecnología** junta en segundos datos oficiales que hoy están dispersos (INA, terreno, escuelas, censo) y los vuelve un mapa que entiende alguien no técnico. El cálculo es transparente y verificable. **No usamos IA en el cálculo**: la usamos para investigar y programar, y proponemos sumarla solo donde mejore la validación (sección 11) |
 
 ---
 

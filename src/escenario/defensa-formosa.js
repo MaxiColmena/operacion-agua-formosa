@@ -86,8 +86,9 @@ export const DEFENSA_REAL = [
   ...OSM_1069689861,
 ];
 
-// Punto de la brecha simulada: frente al puerto, donde el río pega más cerca.
-export const BRECHA_REAL = [-58.161, -26.1905];
+// Punto de la brecha simulada: terraplén sur (OSM 1043100548), frente a los bañados.
+// Con el terreno real es el frente donde el agua llega primero contra la defensa.
+export const BRECHA_REAL = [-58.1836, -26.2028];
 
 // Longitud de la traza en km (para mostrarla y comparar con los 15 km oficiales).
 export function longitudKm(anillo) {

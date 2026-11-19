@@ -140,9 +140,11 @@ describe('modelo sobre la geografía real (OSM)', async () => {
   const { armarGeografia } = await import('../src/mapa/ciudad.js');
   const { DRENAJE } = await import('../src/escenario/datos-ficticios.js');
   const osm = JSON.parse(readFileSync(new URL('../public/datos/formosa-osm.json', import.meta.url), 'utf8'));
+  const mde = JSON.parse(readFileSync(new URL('../public/datos/terreno.json', import.meta.url), 'utf8'));
   const geo = armarGeografia(
     osm.agua.filter((a) => !a.cerrado),
     osm.agua.filter((a) => a.cerrado).map((a) => a.c),
+    mde,
   );
   const modelo = crearModelo(geo);
   const agua = (nivelRio, conFalla = false) =>
@@ -166,8 +168,17 @@ describe('modelo sobre la geografía real (OSM)', async () => {
     expect(modelo.esRio.some(Boolean)).toBe(true);
   });
 
-  it('en aguas medias (4,8 m) casi no hay desborde', () => {
-    expect(contar(agua(4.8))).toBeLessThan(100);
+  it('usa el terreno real (MDE) con alturas plausibles para Formosa', () => {
+    expect(geo.mde.length).toBe(150 * 150);
+    const centro = modelo.cotaTerreno[modelo.infraestructura.length]; // cualquier celda: solo que exista
+    expect(Number.isFinite(centro)).toBe(true);
+    expect(modelo.cotaMax).toBeLessThan(80);
+    expect(modelo.cotaMin).toBeGreaterThan(40);
+  });
+
+  it('el agua del río crece con el nivel y a 4,70 m (hoy) no entra a la ciudad', () => {
+    expect(contar(agua(4.7), true)).toBe(0);
+    expect(contar(agua(7.8))).toBeGreaterThan(contar(agua(4.7)));
   });
 
   it('con la defensa sana no entra agua del río a la ciudad hasta el coronamiento', () => {
@@ -178,6 +189,6 @@ describe('modelo sobre la geografía real (OSM)', async () => {
   });
 
   it('con falla de la defensa el agua entra a la ciudad', () => {
-    expect(contar(agua(9.5, true), true)).toBeGreaterThan(0);
+    expect(contar(agua(9.45, true), true)).toBeGreaterThan(0);
   });
 });

@@ -74,6 +74,27 @@ export const FUENTES = [
     url: 'https://www.openstreetmap.org/',
   },
   {
+    tipo: 'REFERENCIA',
+    nombre: 'Copernicus DEM GLO-30 (ESA)',
+    que: 'Altura del terreno, 30 m (m sobre EGM2008). Modelo de superficie: incluye edificios y árboles; se toma el percentil 20 por celda',
+    fecha: 'descarga 19/11/2026',
+    url: 'https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM',
+  },
+  {
+    tipo: 'REFERENCIA',
+    nombre: 'Mapa Educativo Nacional',
+    que: '288 establecimientos activos (281 edificios), padrón oficial, CC BY 4.0. 244 con ubicación aproximada',
+    fecha: 'descarga 19/11/2026',
+    url: 'https://mapa.educacion.gob.ar/geoservicios',
+  },
+  {
+    tipo: 'REFERENCIA',
+    nombre: 'INDEC · Censo 2022',
+    que: 'Población (253.833) y viviendas de 310 radios censales, repartidas en celdas de ~87 m',
+    fecha: '2022',
+    url: 'https://source.coop/nlebovits/censo-argentino/2022',
+  },
+  {
     tipo: 'ESTIMADO',
     nombre: 'Traza de la defensa',
     que: '5 tramos reales de OSM + conectores estimados por el equipo (~23,5 km)',
@@ -82,8 +103,8 @@ export const FUENTES = [
   },
   {
     tipo: 'FICTICIO',
-    nombre: 'Terreno, drenaje y casos',
-    que: 'Cota del terreno, capacidad del drenaje (45 / 20 mm), series de los 4 casos y brecha',
+    nombre: 'Drenaje y casos',
+    que: 'Capacidad del drenaje (45 / 20 mm), series de los 4 casos, ancho del río y lugar de la brecha',
     fecha: '—',
     url: null,
   },
@@ -91,7 +112,8 @@ export const FUENTES = [
 
 // Incertidumbre que se muestra junto al resultado.
 export const INCERTIDUMBRE = [
-  'Terreno ficticio: no indica qué manzana se inunda. Con el MDE-Ar real el error vertical sería de ~2 m.',
+  'Terreno de 30 m con ~2 m de error vertical y edificios incluidos: orienta, no indica qué manzana se inunda.',
+  'La referencia vertical del DEM (EGM2008) y la del puerto (IGN) se suponen iguales; no está verificado.',
   'La escala del río mide un solo punto (el puerto); el agua no sube igual en toda la costa.',
   'La traza de la defensa es aproximada; no se modelan bombas ni compuertas una por una.',
   'Los días del caso son un supuesto, no tiempos de llegada reales.',

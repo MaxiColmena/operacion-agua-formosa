@@ -162,12 +162,31 @@ function dibujarResumen() {
     if (origen[i] === 1) rio++;
     else if (origen[i] === 2) lluvia++;
   }
+  // Población y viviendas (Censo 2022) en celdas con agua del escenario.
+  let personas = 0;
+  let viviendas = 0;
+  const censo = ciudad.poblacion;
+  if (censo) {
+    for (let i = 0; i < profundidad.length; i++) {
+      if (origen[i] === 1 || origen[i] === 2) {
+        personas += censo.poblacion[i];
+        viviendas += censo.viviendas[i];
+      }
+    }
+  }
+  const redondear = (n) => (n < 100 ? Math.round(n / 10) * 10 : Math.round(n / 100) * 100);
+  const filaCenso = censo
+    ? `<div class="dato"><span>Personas en zonas a evaluar</span><b>~${redondear(personas).toLocaleString('es-AR')}</b></div>
+       <div class="dato"><span>Viviendas</span><b>~${redondear(viviendas).toLocaleString('es-AR')}</b></div>
+       <p class="nota">Censo 2022 (INDEC) por radio, repartido en celdas. Orden de magnitud, no un conteo.</p>`
+    : '';
   const km2 = (celdas) => formato((celdas * TAMANO_CELDA_M * TAMANO_CELDA_M) / 1e6, 1);
   const cuenta = (tipo, est) => estado.infra.filter((i) => i.tipo === tipo && i.estado === est).length;
   $('resumen').innerHTML = `
     <h2>Zonas a evaluar · escenario</h2>
     <div class="dato"><span>Zona expuesta al río</span><b>~${km2(rio)} km²</b></div>
     <div class="dato"><span>Zona anegable por lluvia</span><b>~${km2(lluvia)} km²</b></div>
+    ${filaCenso}
     <div class="dato"><span>Escuelas a evaluar</span><b>${cuenta('escuela', 'afectado')} / ${estado.infraPorTipo.escuela.length}</b></div>
     <div class="dato"><span>Salud a evaluar</span><b>${cuenta('salud', 'afectado')} / ${estado.infraPorTipo.salud.length}</b></div>
     <div class="dato"><span>A vigilar (a &lt; 0,60 m)</span><b>${estado.infra.filter((i) => i.estado === 'riesgo').length}</b></div>
