@@ -3,13 +3,87 @@
 > **AI Lab Misión: Código Formosa** · Desafío 3: *Predicción de afectaciones*
 > Instituto Politécnico Formosa · Santiago Ayala · Máximo Colman · Ramiro Pereyra · Lucas Zigaran
 
-**Estado:** fase de **investigación y decisiones técnicas**. Todavía no hay código.
+**Estado:** fase de **investigación y decisiones técnicas** + **primer boceto web** (rama `dev-colman`).
 Este README junta lo investigado hasta ahora. Se actualiza a medida que el equipo define la idea.
+
+---
+
+## Prototipo web (rama `dev-colman`)
+
+![Prototipo: crecida ficticia a 9,10 m](docs/img/prototipo-crecida.png)
+
+Mapa 3D de Formosa Capital que se puede mover, rotar e inclinar, con un **"reloj del agua"**. Funciona como la app *3D Sun-Path*, donde se mueve la hora y cambian las sombras: acá se mueve el tiempo del evento y el agua sube, baja y avanza sobre la ciudad.
+
+> ⚠️ **Todo es ficticio:** terreno, defensa, lagunas, manzanas e infraestructura. Lo único real son los umbrales del INA (alerta 7,80 m y evacuación 8,30 m en Puerto Formosa).
+
+### Cómo correrlo
+
+```bash
+git checkout dev-colman
+npm install
+npm run dev        # abre http://localhost:5173
+npm test           # tests del cálculo de agua (Vitest)
+```
+
+**Sin clave de Google** arranca en *modo sin Google*: el mismo agua y el relieve ficticio, sin mapa de fondo.
+
+**Con Google Maps:**
+1. En Google Cloud, activar **Maps JavaScript API** y crear una **API key**. Restringirla por *HTTP referrer* (por ejemplo `http://localhost:5173/*`).
+2. Crear un **Map ID** de tipo *JavaScript* y *Vector*, con **Tilt** y **Rotation** activados (Google Maps Platform → Map management). Sin un Map ID vectorial, el mapa no se puede inclinar.
+3. Copiar `.env.example` como `.env.local` y completar:
+   ```
+   VITE_GOOGLE_MAPS_API_KEY=tu_clave
+   VITE_GOOGLE_MAPS_MAP_ID=tu_map_id
+   ```
+   `.env.local` está en `.gitignore`: **la clave nunca se sube**.
+
+Si Google falla (clave mala, sin internet, etc.), la app avisa y pasa sola al modo sin Google.
+
+### Qué se puede hacer
+
+| Control | Qué hace |
+|---|---|
+| **Caso ficticio** | 4 casos: crecida lenta tipo El Niño, tormenta de 140 mm, río alto + tormenta, extremo tipo 1983 |
+| **Tiempo del evento** ▶ | Reproduce el caso: el agua avanza como las sombras en Sun-Path. Velocidad x0,5 a x4 |
+| **Escenario manual** | Mover a mano el nivel del río (2 a 11,5 m) y la lluvia (0 a 250 mm) |
+| **Falla de la defensa** | Abre una brecha en el anillo ficticio y muestra qué se afecta antes |
+| **Vista** | Exageración vertical, relieve ficticio, manzanas ficticias |
+| Panel izquierdo | Vista 2D del agua, hidrograma del caso con umbrales INA y resumen (km², infraestructura afectada) |
+| Lista de infraestructura | Ordenada por **a qué nivel del río se afecta** (el "qué se inunda primero" de la sección 2.2) |
+| Mouse | Arrastrar: mover · Rueda: zoom · Ctrl o clic derecho + arrastrar: rotar e inclinar · Pasar el mouse: datos de la celda |
+
+### Cómo calcula el agua (resumen)
+
+- **Río:** se precalcula para cada celda la **cota mínima que tiene que alcanzar el río para llegar hasta ella** (camino desde el cauce con *priority-flood*). La defensa actúa como barrera. Después, cualquier nivel del río se resuelve al instante.
+- **Lluvia:** se calcula cuánta agua junta cada bajo del terreno. Lo que supera la capacidad del drenaje (45 mm, o 20 mm con el río ≥ 6,5 m porque las bombas no dan abasto) va llenando los bajos.
+- Código: `src/escenario/inundacion.js` (algoritmos, con tests) y `src/escenario/datos-ficticios.js` (todo lo inventado, en un solo lugar para reemplazarlo por datos reales).
+
+### Estructura
+
+```
+index.html                 interfaz (paneles estilo Sun-Path)
+src/main.js                estado, controles y reproducción
+src/escenario/             terreno ficticio, casos y cálculo del agua
+src/mapa/capas.js          capas 3D (deck.gl): relieve, agua, manzanas, defensa, infraestructura
+src/mapa/motores.js        Google Maps vectorial + deck.gl, o deck.gl solo
+src/ui/graficos.js         minimapa 2D e hidrograma
+tests/                     tests del cálculo (Vitest)
+```
+
+### Probado
+
+- `npm test`: 10 tests en verde.
+- `npm run build`: compila sin errores.
+- Navegador headless (Chrome): carga, reproducción, controles manuales, falla de la defensa y rotación, sin errores en la consola.
+- **Con Google Maps real todavía no se probó:** falta una clave. Se verificó que, si Google no carga, la app pasa al modo sin Google con su aviso.
+
+![Falla de la defensa con el río a 9,50 m y 150 mm de lluvia](docs/img/prototipo-falla-defensa.png)
 
 ---
 
 ## Índice
 
+0. [Prototipo web (rama dev-colman)](#prototipo-web-rama-dev-colman)
 1. [La idea en una línea](#1-la-idea-en-una-línea)
 2. [Lo incómodo primero: qué cambia la investigación](#2-lo-incómodo-primero-qué-cambia-la-investigación)
 3. [Qué pide el desafío (guía CITF v1.1)](#3-qué-pide-el-desafío-guía-citf-v11)

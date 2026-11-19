@@ -6,3 +6,7 @@ node_modules/
 .env
 data/raw/
 *.tif
+dist/
+.env.local
+.env.*.local
+*.log

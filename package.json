@@ -1,0 +1,22 @@
+{
+  "name": "operacion-agua-formosa",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Prototipo de mapa 3D de Formosa Capital con simulación de agua sobre casos ficticios",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deck.gl/core": "^9.1.0",
+    "@deck.gl/google-maps": "^9.1.0",
+    "@deck.gl/layers": "^9.1.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}
