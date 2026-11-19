@@ -1,0 +1,15 @@
+{
+  "width": 576,
+  "height": 468,
+  "bounds": {
+    "west": -58.27,
+    "north": -26.12,
+    "east": -58.11000000000001,
+    "south": -26.25
+  },
+  "cellX": 27.764257911868636,
+  "cellY": 30.705555555555556,
+  "min": 49,
+  "max": 69.09784698486328,
+  "source": "Copernicus DEM GLO-30 (ESA, 2021) · tile S27 W059 · filtro mediana 3x3"
+}
