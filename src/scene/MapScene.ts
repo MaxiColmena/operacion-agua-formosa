@@ -10,8 +10,10 @@ import { lonLatToCell } from '../data/load';
 import { MASK_DEFENSE, MASK_RIVER } from '../sim/engine';
 import { STREET } from '../sim/scenarios';
 
-/** Exageración vertical del terreno: la ciudad tiene ~20 m de desnivel en 16 km. */
-export const EXAG = 30;
+/** Exageración vertical por defecto: la ciudad tiene ~20 m de desnivel en 16 km (casi plana). */
+export const DEFAULT_EXAG = 8;
+export const EXAG_MIN = 1;
+export const EXAG_MAX = 20;
 const BASE = 48;
 const BLD_EXAG = 3;
 
@@ -71,6 +73,13 @@ export class MapScene {
   private raf = 0;
   private disposed = false;
   private highlight: THREE.Mesh;
+  /** Exageración vertical actual (y = (elev - BASE) * exag / 1000 km). */
+  private exag = DEFAULT_EXAG;
+  /** Último cuadro de agua, para reubicar la malla al cambiar la exageración. */
+  private lastWater: [Float32Array, Float32Array, Uint8Array, Uint8Array, number] | null = null;
+  /** Por vértice de edificio: cota del terreno (m) y altura sobre el terreno (km). */
+  private bldElev: Float32Array | null = null;
+  private bldOff: Float32Array | null = null;
 
   constructor(private container: HTMLElement, data: AppData) {
     this.meta = data.meta;
@@ -137,9 +146,16 @@ export class MapScene {
   cellToWorld(cx: number, cy: number, elev: number) {
     return new THREE.Vector3(
       (cx / this.meta.width - 0.5) * this.widthKm,
-      ((elev - BASE) * EXAG) / 1000,
+      this.elevToY(elev),
       (cy / this.meta.height - 0.5) * this.heightKm,
     );
+  }
+  /** Cota (m) → altura en mundo (km) con la exageración actual. */
+  elevToY(elev: number) {
+    return ((elev - BASE) * this.exag) / 1000;
+  }
+  get exaggeration() {
+    return this.exag;
   }
   elevAt(cx: number, cy: number) {
     const { width: w, height: h } = this.meta;
@@ -165,7 +181,7 @@ export class MapScene {
     const elev = new Float32Array(w * h);
     for (let i = 0; i < w * h; i++) {
       elev[i] = data.z[i];
-      pos.setY(i, ((data.z[i] - BASE) * EXAG) / 1000);
+      pos.setY(i, this.elevToY(data.z[i]));
     }
     geo.setAttribute('aElev', new THREE.BufferAttribute(elev, 1));
     geo.computeVertexNormals();
@@ -412,6 +428,7 @@ export class MapScene {
 
   setWaterFrame(d: Float32Array, tWet: Float32Array, byRiver: Uint8Array, mask: Uint8Array, simTime: number) {
     if (!this.water || !this.zEffSim) return;
+    this.lastWater = [d, tWet, byRiver, mask, simTime];
     const geo = this.water.geometry;
     const pos = geo.attributes.position as THREE.BufferAttribute;
     const aD = geo.attributes.aDepth as THREE.BufferAttribute;
@@ -421,7 +438,7 @@ export class MapScene {
     for (let i = 0; i < d.length; i++) {
       const river = mask[i] & MASK_RIVER;
       const dep = d[i];
-      const y = dep > 0.01 || river ? ((z[i] + dep - BASE) * EXAG) / 1000 + 0.004 : ((z[i] - BASE) * EXAG) / 1000 - 0.02;
+      const y = dep > 0.01 || river ? this.elevToY(z[i] + dep) + 0.004 : this.elevToY(z[i]) - 0.02;
       pos.setY(i, y);
       (aD.array as Float32Array)[i] = dep;
       (aT.array as Float32Array)[i] = byRiver[i] && !river ? 0 : tWet[i];
@@ -461,6 +478,8 @@ export class MapScene {
 
   private buildBuildings(b: Buildings) {
     const pos: number[] = [];
+    const elevV: number[] = [];
+    const offV: number[] = [];
     const rel: number[] = [];
     const uvs: number[] = [];
     const idx: number[] = [];
@@ -477,13 +496,16 @@ export class MapScene {
       }
       cx /= n; cy /= n;
       cent[i * 2] = cx; cent[i * 2 + 1] = cy;
-      const base = this.cellToWorld(cx, cy, this.elevAt(cx, cy)).y;
+      const ground = this.elevAt(cx, cy);
+      const base = this.elevToY(ground);
       const hm = b.height[i] > 0 ? b.height[i] : 3 + (Math.abs(Math.sin(cx * 12.9898 + cy * 78.233) * 43758.5453) % 1) * 3.5;
-      const top = base + (hm * BLD_EXAG) / 1000;
+      // La altura del edificio va en metros reales × BLD_EXAG: no sigue a la exageración del terreno.
+      const hk = (hm * BLD_EXAG) / 1000;
+      const top = base + hk;
       const u = cx / this.meta.width, v = cy / this.meta.height;
       const o = pos.length / 3;
-      for (const p of v2) { pos.push(p.x, base, p.y); rel.push(0); uvs.push(u, v); }
-      for (const p of v2) { pos.push(p.x, top, p.y); rel.push(1); uvs.push(u, v); }
+      for (const p of v2) { pos.push(p.x, base, p.y); rel.push(0); uvs.push(u, v); elevV.push(ground); offV.push(0); }
+      for (const p of v2) { pos.push(p.x, top, p.y); rel.push(1); uvs.push(u, v); elevV.push(ground); offV.push(hk); }
       for (let j = 0; j < n; j++) {
         const a = o + j, c = o + ((j + 1) % n);
         idx.push(a, c, c + n, a, c + n, a + n);
@@ -493,6 +515,8 @@ export class MapScene {
     }
     if (!pos.length) return;
     this.bldCentroid = cent;
+    this.bldElev = new Float32Array(elevV);
+    this.bldOff = new Float32Array(offV);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('aRel', new THREE.Float32BufferAttribute(rel, 1));
@@ -538,18 +562,32 @@ export class MapScene {
     const baseGeo = new THREE.RingGeometry(0.025, 0.05, 24).rotateX(-Math.PI / 2);
     const baseMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
     this.bases = new THREE.InstancedMesh(baseGeo, baseMat, n);
-    const m = new THREE.Matrix4();
-    list.forEach((f, i) => {
-      const p = this.lonLatToWorld(f.lon, f.lat, 0.003);
-      this.facilityPos.push(p);
-      m.compose(p, new THREE.Quaternion(), new THREE.Vector3(1, CAT_HEIGHT[f.cat] ?? 0.5, 1));
-      this.beams!.setMatrixAt(i, m);
-      m.compose(p, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
-      this.bases!.setMatrixAt(i, m);
+    list.forEach((_, i) => {
+      this.facilityPos.push(new THREE.Vector3());
       this.beams!.setColorAt(i, STATUS_COLOR.seco);
       this.bases!.setColorAt(i, STATUS_COLOR.seco);
     });
+    this.placeFacilities();
     this.scene.add(this.beams, this.bases);
+  }
+
+  /** Ubica haces y bases sobre el terreno con la exageración actual. */
+  private placeFacilities() {
+    if (!this.beams || !this.bases) return;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3(1, 1, 1);
+    this.facilities.forEach((f, i) => {
+      const p = this.facilityPos[i].copy(this.lonLatToWorld(f.lon, f.lat, 0.003));
+      m.compose(p, q, new THREE.Vector3(1, CAT_HEIGHT[f.cat] ?? 0.5, 1));
+      this.beams!.setMatrixAt(i, m);
+      m.compose(p, q, one);
+      this.bases!.setMatrixAt(i, m);
+    });
+    this.beams.instanceMatrix.needsUpdate = true;
+    this.bases.instanceMatrix.needsUpdate = true;
+    this.beams.computeBoundingSphere();
+    this.bases.computeBoundingSphere();
   }
 
   setFacilityStatus(status: FacilityStatus[]) {
@@ -581,7 +619,8 @@ export class MapScene {
   }
 
   focusFacility(i: number | null) {
-    if (i == null || i < 0 || !this.facilityPos[i]) { this.highlight.visible = false; return; }
+    if (i == null || i < 0 || !this.facilityPos[i]) { this.highlight.visible = false; this.highlightIndex = null; return; }
+    this.highlightIndex = i;
     const p = this.facilityPos[i];
     this.highlight.position.copy(p);
     this.highlight.visible = true;
@@ -597,6 +636,7 @@ export class MapScene {
     this.flyTo(p, p.clone().add(new THREE.Vector3(0.6, 2.2, 2.6)));
   }
 
+  private highlightIndex: number | null = null;
   private fly: { from: THREE.Vector3; to: THREE.Vector3; tFrom: THREE.Vector3; tTo: THREE.Vector3; t: number } | null = null;
   flyTo(target: THREE.Vector3, camPos: THREE.Vector3) {
     this.fly = { from: this.camera.position.clone(), to: camPos, tFrom: this.controls.target.clone(), tTo: target.clone(), t: 0 };
@@ -609,6 +649,7 @@ export class MapScene {
       el.className = 'barrio-label';
       el.textContent = b.name;
       const obj = new CSS2DObject(el);
+      obj.userData.anchor = [b.lon, b.lat, 0.06];
       obj.position.copy(this.lonLatToWorld(b.lon, b.lat, 0.06));
       this.labels.push(obj);
       this.scene.add(obj);
@@ -634,6 +675,7 @@ export class MapScene {
       el.className = 'street-label';
       el.textContent = name;
       const obj = new CSS2DObject(el);
+      obj.userData.anchor = [mid[0], mid[1], 0.02];
       obj.position.copy(this.lonLatToWorld(mid[0], mid[1], 0.02));
       this.streetLabels.push(obj);
       this.scene.add(obj);
@@ -693,6 +735,66 @@ export class MapScene {
       arr[k + 1] = y; arr[k + 4] = y - 0.07;
     }
     pos.needsUpdate = true;
+  }
+
+  // ---------- exageración vertical ----------
+  /**
+   * Cambia la exageración vertical del relieve (1× = escala real) y reubica todo lo que depende de ella:
+   * terreno, agua, bases de edificios (su altura no cambia), instalaciones, rótulos, anillo y cámara.
+   */
+  setExaggeration(x: number) {
+    const nx = Math.min(EXAG_MAX, Math.max(EXAG_MIN, x));
+    if (nx === this.exag) return;
+    const ratio = nx / this.exag;
+    this.exag = nx;
+
+    // Terreno.
+    const tg = this.terrain.geometry;
+    const tp = tg.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < this.z.length; i++) tp.setY(i, this.elevToY(this.z[i]));
+    tp.needsUpdate = true;
+    tg.computeVertexNormals();
+    tg.computeBoundingSphere();
+
+    // Agua: se recalcula con el último cuadro.
+    if (this.lastWater) {
+      this.setWaterFrame(...this.lastWater);
+      this.water.geometry.computeBoundingSphere();
+    }
+
+    // Edificios: se mueve la base, la altura queda en metros reales × BLD_EXAG.
+    if (this.buildings && this.bldElev && this.bldOff) {
+      const bg = this.buildings.geometry;
+      const bp = bg.attributes.position as THREE.BufferAttribute;
+      const arr = bp.array as Float32Array;
+      const e = this.bldElev, o = this.bldOff;
+      for (let i = 0; i < e.length; i++) arr[i * 3 + 1] = this.elevToY(e[i]) + o[i];
+      bp.needsUpdate = true;
+      bg.computeBoundingSphere();
+    }
+
+    // Instalaciones y rótulos.
+    this.placeFacilities();
+    for (const o of [...this.labels, ...this.streetLabels]) {
+      const a = o.userData.anchor as [number, number, number] | undefined;
+      if (a) o.position.copy(this.lonLatToWorld(a[0], a[1], a[2]));
+    }
+    for (const o of this.facilityLabels) {
+      o.position.copy(this.facilityPos[o.userData.index]).add(new THREE.Vector3(0, CAT_HEIGHT.hospital + 0.03, 0));
+    }
+    if (this.highlightIndex != null && this.facilityPos[this.highlightIndex]) {
+      this.highlight.position.copy(this.facilityPos[this.highlightIndex]);
+    }
+
+    // Cámara: objetivo y cámara suben/bajan juntos con el suelo, sin cambiar el encuadre.
+    const dy = this.controls.target.y * (ratio - 1);
+    this.controls.target.y += dy;
+    this.camera.position.y += dy;
+    if (this.fly) {
+      const fdy = this.fly.tTo.y * (ratio - 1);
+      this.fly.tTo.y += fdy;
+      this.fly.to.y += fdy;
+    }
   }
 
   // ---------- capas ----------

@@ -34,9 +34,9 @@ for (const [k, sc] of LEVELS.entries()) {
   console.log(sc.id, `${km2.toFixed(2)} km² afectados`, `${Math.round((Date.now() - t0) / 1000)} s`);
 }
 
-// Filtro de ruido: se descartan manchas aisladas de menos de MIN_CELLS celdas (~0,5 ha),
+// Filtro de ruido: se descartan manchas aisladas de menos de MIN_CELLS celdas (~1 ha),
 // que suelen ser pozos del modelo de superficie y no zonas de anegamiento reales.
-const MIN_CELLS = 6;
+const MIN_CELLS = 12;
 {
   const { width: w, height: h } = grid;
   const seen = new Uint8Array(n);

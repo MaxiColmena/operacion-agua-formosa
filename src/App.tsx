@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadAll, type AppData, type FacilityCat } from './data/load';
-import { MapScene, type Layers, type WaterMode } from './scene/MapScene';
+import { DEFAULT_EXAG, EXAG_MAX, EXAG_MIN, MapScene, type Layers, type WaterMode } from './scene/MapScene';
 import type { WorkerIn, WorkerOut, SimStats } from './sim/worker';
 import type { Scenario } from './sim/engine';
 import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS, STREET } from './sim/scenarios';
@@ -29,6 +29,7 @@ export default function App() {
   const [speed, setSpeed] = useState(900);
   const [layers, setLayers] = useState<Layers>({ water: true, zones: false, buildings: true, lines: true, labels: true, facilities: true });
   const [waterMode, setWaterMode] = useState<WaterMode>('depth');
+  const [exag, setExag] = useState(DEFAULT_EXAG);
   const [tab, setTab] = useState<'barrios' | 'infra' | 'calles'>('calles');
   const [streets, setStreets] = useState<StreetLive | null>(null);
   const streetRef = useRef<StreetSamples | null>(null);
@@ -130,6 +131,11 @@ export default function App() {
   useEffect(() => { send({ type: 'speed', value: speed }); }, [speed]);
   useEffect(() => { sceneRef.current?.setLayers(layers); }, [layers, facilities]);
   useEffect(() => { sceneRef.current?.setWaterMode(waterMode); }, [waterMode, stats === null]);
+  // Exageración vertical: se aplica una vez por cuadro aunque el slider dispare muchos eventos.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => sceneRef.current?.setExaggeration(exag));
+    return () => cancelAnimationFrame(id);
+  }, [exag, data]);
   const raining = !!stats && stats.time < scenario.rainHours * 3600 && stats.running;
   useEffect(() => { sceneRef.current?.setRain(scenario.rainMmH, raining); }, [raining, scenario.rainMmH]);
 
@@ -362,6 +368,11 @@ export default function App() {
           <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}>Calles y riachos</Toggle>
           <Toggle on={layers.facilities} onClick={() => setLayers({ ...layers, facilities: !layers.facilities })}>Instalaciones</Toggle>
           <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}>Nombres</Toggle>
+          <label className="exag" title="Exageración vertical: Formosa es casi plana; 1× es la escala real">
+            <span>Relieve ×{exag}</span>
+            <input type="range" min={EXAG_MIN} max={EXAG_MAX} step={1} value={exag} onChange={(e) => setExag(Number(e.target.value))}
+              aria-label="Exageración vertical del relieve" />
+          </label>
           <span className="sep" />
           <Toggle on={waterMode === 'order'} onClick={() => setWaterMode(waterMode === 'order' ? 'depth' : 'order')}>Color: {waterMode === 'order' ? 'orden de llegada' : 'profundidad'}</Toggle>
           <button className="btn ghost" onClick={() => setShowInfo(true)}>ⓘ Supuestos, datos y límites</button>
@@ -442,6 +453,7 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
           <li><b>Modelo hidráulico 2D de inercia local</b> (Bates et al. 2010, base de LISFLOOD-FP): la lluvia cae en cada celda, escurre según la pendiente y se acumula en los bajos.</li>
           <li>Simulación en vivo con celdas de ~60 m. Mapa de zonas 1º/2º/3º precalculado con celdas de ~30 m.</li>
           <li>El río Paraguay es un borde de nivel fijo. Las zonas conectadas al río por debajo de su nivel arrancan con agua ("bañadera conectada").</li>
+          <li>El <b>relieve está exagerado</b> en altura (×{DEFAULT_EXAG} por defecto) para que se vean los bajos: Formosa es casi plana. Con el control «Relieve» del panel inferior se puede poner en 1× (escala real).</li>
           <li>Una celda está <b>afectada</b> cuando tiene 15 cm de agua o más. Un barrio está afectado cuando lo está al menos el 5 % de su superficie.</li>
         </ul>
 
