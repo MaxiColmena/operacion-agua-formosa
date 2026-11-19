@@ -22,6 +22,7 @@ async function overpass(name: string, body: string) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'operacion-agua-hackathon/0.1' },
         body: 'data=' + encodeURIComponent(q),
+        signal: AbortSignal.timeout(240_000),
       });
       if (r.ok) res = r; else console.warn(`${name}: ${url} -> HTTP ${r.status}, reintento`);
     } catch (err) { console.warn(`${name}: ${url} -> ${(err as Error).message}, reintento`); }

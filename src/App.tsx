@@ -181,8 +181,12 @@ export default function App() {
         <section>
           <label className="row"><span>Lluvia</span><b className="mono">{scenario.rainMmH} mm/h</b></label>
           <input type="range" min={0} max={200} step={5} value={scenario.rainMmH} onChange={(e) => update({ rainMmH: +e.target.value })} />
-          <div className="hint mono">
-            = {rainMmMin.toFixed(2)} mm/min = {rainMmMin.toFixed(2)} L por m² por minuto
+          <div className="permin">
+            <input
+              type="number" min={0} max={3.33} step={0.05} value={+rainMmMin.toFixed(2)}
+              onChange={(e) => update({ rainMmH: Math.max(0, Math.min(200, Math.round(+e.target.value * 60))) })}
+            />
+            <span>mm por minuto = litros por m² por minuto</span>
           </div>
           <label className="row"><span>Duración</span><b className="mono">{fmtHours(scenario.rainHours)}</b></label>
           <input type="range" min={0.25} max={6} step={0.25} value={scenario.rainHours} onChange={(e) => update({ rainHours: +e.target.value })} />

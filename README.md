@@ -3,8 +3,57 @@
 > **AI Lab Misión: Código Formosa** · Desafío 3: *Predicción de afectaciones*
 > Instituto Politécnico Formosa · Santiago Ayala · Máximo Colman · Ramiro Pereyra · Lucas Zigaran
 
-**Estado:** fase de **investigación y decisiones técnicas**. Todavía no hay código.
-Este README junta lo investigado hasta ahora. Se actualiza a medida que el equipo define la idea.
+**Estado:** **prototipo funcional** del simulador 3D (rama `dev-lucas`). Más abajo sigue la investigación que le dio origen.
+
+---
+
+## 0. El simulador (prototipo)
+
+Mapa 3D interactivo de Formosa Capital. El operador **hace llover** una cantidad de agua por minuto o por hora, durante el tiempo que elija y con el río Paraguay a la altura que elija. Ve cómo el agua escurre y se acumula, y **qué zonas, barrios e infraestructura se afectan primero, segundo y tercero**.
+
+### Cómo correrlo
+
+Requisitos: Node.js 20 o superior.
+
+```bash
+npm install
+npm run dev        # abre http://localhost:5173
+```
+
+Los datos procesados ya están en `public/data/`. Para regenerarlos desde cero:
+
+```bash
+npm run data       # MDE → OSM → máscaras → zonas 1º/2º/3º (unos 5 minutos)
+```
+
+`npm run data:dem` espera el tile Copernicus en `data-raw/cop_S27.tif`. Se descarga así:
+
+```bash
+curl -o data-raw/cop_S27.tif https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_S27_00_W059_00_DEM/Copernicus_DSM_COG_10_S27_00_W059_00_DEM.tif
+```
+
+### Qué se puede hacer
+
+- **Escenario:** lluvia en mm/h o en **mm por minuto** (1 mm = 1 litro por m²), duración, altura del río en Puerto Formosa (con marcas de hoy, alerta, evacuación y 1983), capacidad de desagüe y "falla de la defensa".
+- **Escenarios de referencia:** Nivel 1 (lluvia fuerte), Nivel 2 (temporal severo con el río en alerta), Nivel 3 (extremo con el río en evacuación) y la crecida histórica de 1983.
+- **Hacer llover:** la simulación corre en vivo, a 5, 15 o 30 minutos simulados por segundo.
+- **Orden de afectación:** lista de barrios e infraestructura (hospitales, salud, escuelas, bomberos y policía, servicios) ordenada por el momento en que el agua los alcanza. Cada uno indica su **nivel de referencia** (1º, 2º o 3º).
+- **Capas:** agua en vivo, coloreada por profundidad o por **orden de llegada**; zonas precalculadas 1º/2º/3º; edificios, calles, riachos y barrios.
+- **Transparencia:** etiquetas OBSERVADO / PREVISIÓN INA / ESCENARIO DEL USUARIO y un panel con supuestos, datos y límites, como pide la guía.
+
+### Cómo está hecho
+
+| Parte | Archivo | Qué hace |
+|---|---|---|
+| Motor hidráulico | `src/sim/engine.ts` | Modelo 2D de **inercia local** (Bates et al. 2010, base de LISFLOOD-FP): lluvia, escurrimiento, fricción de Manning, desagüe declarado, río como borde de nivel fijo y estado inicial de "bañadera conectada" |
+| Simulación en vivo | `src/sim/worker.ts` | Corre el motor en un Web Worker, con celdas de ~60 m |
+| Escenarios y supuestos | `src/sim/scenarios.ts` | Niveles 1/2/3, crecida de 1983 y todos los supuestos numéricos |
+| Escena 3D | `src/scene/MapScene.ts` | Three.js: terreno con curvas de nivel, agua, edificios, columnas de luz y lluvia |
+| Análisis | `src/analysis.ts` | Cruza el agua con barrios e infraestructura: estado, primer contacto y nivel 1º/2º/3º |
+| Interfaz | `src/App.tsx` | Paneles de escenario, orden de afectación, capas y supuestos |
+| Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua) y `build-zones` (zonas 1º/2º/3º a 30 m) |
+
+**Supuesto clave a reemplazar:** el **cero de escala de Puerto Formosa** (se usa 45,8 m, estimado desde el MDE). Cuando se consiga el valor oficial del INA, se cambia en `src/sim/scenarios.ts` y se corre `npm run data:zones`.
 
 ---
 

@@ -34,6 +34,27 @@ for (const [k, sc] of LEVELS.entries()) {
   console.log(sc.id, `${km2.toFixed(2)} km² afectados`, `${Math.round((Date.now() - t0) / 1000)} s`);
 }
 
+// Filtro de ruido: se descartan manchas aisladas de menos de MIN_CELLS celdas (~0,5 ha),
+// que suelen ser pozos del modelo de superficie y no zonas de anegamiento reales.
+const MIN_CELLS = 6;
+{
+  const { width: w, height: h } = grid;
+  const seen = new Uint8Array(n);
+  let removed = 0;
+  for (let s = 0; s < n; s++) {
+    if (!zones[s] || seen[s]) continue;
+    const comp: number[] = [s]; seen[s] = 1;
+    for (let k = 0; k < comp.length; k++) {
+      const i = comp[k], x = i % w, y = (i / w) | 0;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
+        if (j >= 0 && zones[j] && !seen[j]) { seen[j] = 1; comp.push(j); }
+      }
+    }
+    if (comp.length < MIN_CELLS) { for (const i of comp) { zones[i] = 0; byRiver[i] = 0; } removed += comp.length; }
+  }
+  console.log(`filtro de ruido: ${removed} celdas sueltas descartadas`);
+}
+
 // Bit 4 = afectada por el río en lugar de por la lluvia.
 const out = new Uint8Array(n);
 for (let i = 0; i < n; i++) out[i] = zones[i] | (byRiver[i] ? 4 : 0);
