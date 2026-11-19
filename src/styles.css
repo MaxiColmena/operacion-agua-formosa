@@ -166,6 +166,16 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 .tier.t3 { background: rgba(255, 224, 64, 0.18); color: var(--t3); }
 .tier-sum { font-size: 11px; color: var(--muted); padding-top: 8px; border-top: 1px solid var(--line); margin-top: 6px; }
 
+.street-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.street-sum > div { padding: 8px; border-radius: 8px; background: rgba(56, 232, 255, 0.05); border: 1px solid var(--line); }
+.street-sum b { display: block; font-size: 16px; color: #73e0ff; }
+.street-sum .c2 b { color: #4d8bff; }
+.street-sum .c3 b { color: var(--bad); }
+.street-sum .c4 b { color: #d9a35b; }
+.street-sum span { font-size: 10.5px; color: var(--muted); line-height: 1.3; display: block; }
+.street-sum .list-help { grid-column: 1 / -1; }
+.tabs button { white-space: nowrap; font-size: 12px; }
+
 /* ---------- ficha ---------- */
 .card {
   position: absolute; left: 50%; top: 84px; transform: translateX(-50%); width: 340px; padding: 14px 16px; z-index: 3;

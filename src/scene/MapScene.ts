@@ -8,6 +8,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRe
 import type { AppData, Buildings, Facility, TerrainMeta } from '../data/load';
 import { lonLatToCell } from '../data/load';
 import { MASK_DEFENSE, MASK_RIVER } from '../sim/engine';
+import { STREET } from '../sim/scenarios';
 
 /** Exageración vertical del terreno: la ciudad tiene ~20 m de desnivel en 16 km. */
 export const EXAG = 30;
@@ -23,6 +24,7 @@ export interface Layers {
   buildings: boolean;
   lines: boolean;
   labels: boolean;
+  facilities: boolean;
 }
 
 const STATUS_COLOR: Record<FacilityStatus, THREE.Color> = {
@@ -34,6 +36,11 @@ const STATUS_COLOR: Record<FacilityStatus, THREE.Color> = {
 const CAT_HEIGHT: Record<string, number> = {
   hospital: 1.1, salud: 0.7, escuela: 0.55, seguridad: 0.6, servicios: 0.8, refugio: 0.6, transporte: 0.7,
 };
+
+/** Profundidad del agua en la calzada: en zona urbana el agua de la celda se concentra en la calle. */
+export function streetDepth(d: number, urban: number) {
+  return urban ? d / STREET.share : d;
+}
 
 export class MapScene {
   readonly renderer: THREE.WebGLRenderer;
@@ -171,12 +178,17 @@ export class MapScene {
     zoneTex.minFilter = THREE.NearestFilter;
     zoneTex.needsUpdate = true;
 
-    const linesTex = this.buildLinesTexture(data);
+    const { lines: linesTex, roads: roadsTex } = this.buildLinesTexture(data);
+    this.streetTex = new THREE.DataTexture(new Float32Array(2), 1, 1, THREE.RGFormat, THREE.FloatType);
 
     this.terrainMat = new THREE.ShaderMaterial({
       uniforms: {
         uZones: { value: zoneTex },
         uLines: { value: linesTex },
+        uRoads: { value: roadsTex },
+        uWater: { value: this.streetTex },
+        uWaterSize: { value: new THREE.Vector2(1, 1) },
+        uStreet: { value: new THREE.Vector3(STREET.wet, STREET.curb, STREET.impassable) },
         uShowZones: { value: 0 },
         uShowLines: { value: 1 },
         uTime: { value: 0 },
@@ -193,7 +205,8 @@ export class MapScene {
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */ `
-        uniform sampler2D uZones; uniform sampler2D uLines;
+        uniform sampler2D uZones; uniform sampler2D uLines; uniform sampler2D uRoads; uniform sampler2D uWater;
+        uniform vec2 uWaterSize; uniform vec3 uStreet;
         uniform float uShowZones; uniform float uShowLines; uniform float uTime;
         uniform vec3 fogColor; uniform float fogDensity;
         varying float vElev; varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying float vFogDepth;
@@ -215,6 +228,23 @@ export class MapScene {
           // Calles, riachos y defensa.
           vec4 ln = texture2D(uLines, tuv);
           col = mix(col, ln.rgb * 1.6, ln.a * uShowLines);
+          // Calles: color base (asfalto celeste / tierra ocre) y agua en la calzada.
+          vec4 rd = texture2D(uRoads, tuv);
+          if (rd.a > 0.01 && uShowLines > 0.5) {
+            vec3 road = mix(vec3(0.42, 0.3, 0.16), vec3(0.26, 0.29, 0.34), rd.g);
+            col = mix(col, road, rd.a * 0.8);
+            // Profundidad en la calle (canal G): bilineal manual sobre la grilla de simulación.
+            vec2 p = tuv * uWaterSize - 0.5;
+            vec2 f = fract(p); vec2 i0 = (floor(p) + 0.5) / uWaterSize; vec2 dt = 1.0 / uWaterSize;
+            float s = mix(mix(texture2D(uWater, i0).g, texture2D(uWater, i0 + vec2(dt.x, 0.0)).g, f.x),
+                          mix(texture2D(uWater, i0 + vec2(0.0, dt.y)).g, texture2D(uWater, i0 + dt).g, f.x), f.y);
+            if (s > uStreet.x) {
+              vec3 wc = s < uStreet.y ? mix(vec3(0.0, 0.8, 1.0), vec3(0.0, 0.45, 1.0), (s - uStreet.x) / (uStreet.y - uStreet.x))
+                      : s < uStreet.z ? mix(vec3(0.05, 0.2, 1.0), vec3(0.4, 0.1, 0.95), (s - uStreet.y) / (uStreet.z - uStreet.y))
+                      : vec3(1.0, 0.2, 0.32) * (0.8 + 0.25 * sin(uTime * 5.0));
+              col = mix(col, wc * 0.95, min(1.0, rd.a * 1.6) * smoothstep(uStreet.x, uStreet.x + 0.03, s));
+            }
+          }
           // Zonas 1ª / 2ª / 3ª.
           float zone = floor(texture2D(uZones, tuv).r * 255.0 / 60.0 + 0.5);
           if (uShowZones > 0.5 && zone > 0.5) {
@@ -244,6 +274,9 @@ export class MapScene {
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
     const g = cv.getContext('2d')!;
+    const rcv = document.createElement('canvas');
+    rcv.width = W; rcv.height = H;
+    const rg = rcv.getContext('2d')!;
     const toPx = (lon: number, lat: number): [number, number] => {
       const [cx, cy] = lonLatToCell(this.meta, lon, lat);
       return [(cx / this.meta.width) * W, (cy / this.meta.height) * H];
@@ -256,12 +289,17 @@ export class MapScene {
     g.lineCap = 'round'; g.lineJoin = 'round';
     const osm = data.osm;
     if (osm) {
+      // Calles en su propia textura: R = 1, G = asfaltada (1) o de tierra (0), A = jerarquía.
+      rg.lineCap = 'round'; rg.lineJoin = 'round';
       for (const k of [3, 2, 1]) {
         for (const r of osm.roads) {
           if (r.k !== k) continue;
-          g.strokeStyle = k === 1 ? 'rgba(120,240,255,0.95)' : k === 2 ? 'rgba(80,200,255,0.75)' : r.paved ? 'rgba(60,160,230,0.45)' : 'rgba(170,140,90,0.45)';
-          g.lineWidth = k === 1 ? 4 : k === 2 ? 2.6 : 1.4;
-          stroke(r.c);
+          const a = k === 1 ? 1 : k === 2 ? 0.9 : 0.7;
+          rg.strokeStyle = r.paved ? `rgba(255,255,0,${a})` : `rgba(255,0,0,${a})`;
+          rg.lineWidth = k === 1 ? 4.5 : k === 2 ? 3 : 1.8;
+          rg.beginPath();
+          r.c.forEach(([lon, lat], i) => { const [x, y] = toPx(lon, lat); if (i) rg.lineTo(x, y); else rg.moveTo(x, y); });
+          rg.stroke();
         }
       }
       for (const l of osm.waterLines) {
@@ -277,11 +315,14 @@ export class MapScene {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_RIVER) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
     g.fillStyle = 'rgba(255,90,220,0.9)';
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_DEFENSE) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
-    const tex = new THREE.CanvasTexture(cv);
-    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    tex.flipY = false;
-    tex.colorSpace = THREE.NoColorSpace;
-    return tex;
+    const mk = (c: HTMLCanvasElement) => {
+      const tex = new THREE.CanvasTexture(c);
+      tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+      tex.flipY = false;
+      tex.colorSpace = THREE.NoColorSpace;
+      return tex;
+    };
+    return { lines: mk(cv), roads: mk(rcv) };
   }
 
   // ---------- agua ----------
@@ -340,15 +381,26 @@ export class MapScene {
       this.bldMat.uniforms.uWater.value = this.waterTex;
       this.bldMat.uniforms.uThr.value = 0.15;
     }
+    this.urbanCell = new Uint8Array(n);
     if (this.bldCentroid) {
       const nb = this.bldCentroid.length / 2;
       this.buildingSimCell = new Int32Array(nb);
+      const count = new Uint16Array(n);
       for (let i = 0; i < nb; i++) {
         const sx = Math.min(width - 1, Math.floor(this.bldCentroid[i * 2] / f));
         const sy = Math.min(height - 1, Math.floor(this.bldCentroid[i * 2 + 1] / f));
         this.buildingSimCell[i] = sy * width + sx;
+        count[sy * width + sx]++;
       }
+      for (let i = 0; i < n; i++) this.urbanCell[i] = count[i] >= STREET.minBuildings ? 1 : 0;
     }
+    this.streetTex?.dispose();
+    this.streetTex = new THREE.DataTexture(new Float32Array(n * 2), width, height, THREE.RGFormat, THREE.FloatType);
+    this.streetTex.magFilter = THREE.NearestFilter;
+    this.streetTex.minFilter = THREE.NearestFilter;
+    this.streetTex.needsUpdate = true;
+    this.terrainMat.uniforms.uWater.value = this.streetTex;
+    this.terrainMat.uniforms.uWaterSize.value.set(width, height);
     this.water = new THREE.Mesh(geo, this.waterMat);
     this.water.renderOrder = 2;
     this.scene.add(this.water);
@@ -376,6 +428,15 @@ export class MapScene {
       (aR.array as Float32Array)[i] = river ? 1 : 0;
     }
     pos.needsUpdate = true; aD.needsUpdate = true; aT.needsUpdate = true; aR.needsUpdate = true;
+    if (this.streetTex && this.urbanCell && (this.streetTex.image.data as Float32Array).length === d.length * 2) {
+      const sd = this.streetTex.image.data as Float32Array;
+      const u = this.urbanCell;
+      for (let i = 0; i < d.length; i++) {
+        sd[i * 2] = d[i];
+        sd[i * 2 + 1] = mask[i] & MASK_RIVER ? 0 : streetDepth(d[i], u[i]);
+      }
+      this.streetTex.needsUpdate = true;
+    }
     if (this.waterTex && this.waterTex.image.data && (this.waterTex.image.data as Float32Array).length === d.length) {
       (this.waterTex.image.data as Float32Array).set(d);
       this.waterTex.needsUpdate = true;
@@ -386,6 +447,10 @@ export class MapScene {
   setWaterMode(mode: WaterMode) {
     if (this.waterMat) this.waterMat.uniforms.uMode.value = mode === 'order' ? 1 : 0;
   }
+
+  /** 1 = celda de simulación urbana (≥ STREET.minBuildings edificios). Se llena en initWater. */
+  urbanCell: Uint8Array | null = null;
+  private streetTex: THREE.DataTexture | null = null;
 
   // ---------- edificios ----------
   private waterTex: THREE.DataTexture | null = null;
@@ -453,7 +518,7 @@ export class MapScene {
         void main() {
           vec3 wall = mix(vec3(0.03, 0.08, 0.17), vec3(0.1, 0.38, 0.55), smoothstep(0.7, 1.0, vRel));
           if (vDepth >= uThr) wall = mix(vec3(0.35, 0.03, 0.08), vec3(1.0, 0.25, 0.35), smoothstep(0.5, 1.0, vRel) * (0.8 + 0.2 * sin(uTime * 4.0)));
-          else if (vDepth >= 0.05) wall = mix(vec3(0.3, 0.2, 0.02), vec3(1.0, 0.75, 0.2), smoothstep(0.6, 1.0, vRel));
+          else if (vDepth >= 0.1) wall = mix(vec3(0.3, 0.2, 0.02), vec3(1.0, 0.75, 0.2), smoothstep(0.6, 1.0, vRel));
           gl_FragColor = vec4(wall, 0.95);
         }`,
     });
@@ -556,7 +621,7 @@ export class MapScene {
   private buildStreetLabels(roads: { k: number; n?: string; c: number[][] }[]) {
     const best = new Map<string, { len: number; c: number[][] }>();
     for (const r of roads) {
-      if (!r.n || r.c.length < 2) continue;
+      if (!r.n || r.k > 2 || r.c.length < 2) continue;
       let len = 0;
       for (let i = 1; i < r.c.length; i++) len += Math.hypot(r.c[i][0] - r.c[i - 1][0], r.c[i][1] - r.c[i - 1][1]);
       const cur = best.get(r.n);
@@ -638,7 +703,9 @@ export class MapScene {
     if (this.buildings) this.buildings.visible = l.buildings;
     this.labels.forEach((o) => (o.visible = l.labels));
     this.streetLabels.forEach((o) => (o.visible = l.lines && l.labels));
-    this.facilityLabels.forEach((o) => (o.visible = l.labels));
+    this.facilityLabels.forEach((o) => (o.visible = l.labels && l.facilities));
+    if (this.beams) this.beams.visible = l.facilities;
+    if (this.bases) this.bases.visible = l.facilities;
   }
 
   // ---------- ciclo ----------

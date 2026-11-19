@@ -3,6 +3,8 @@ import type { AppData, Facility } from './data/load';
 import { lonLatToCell } from './data/load';
 import { MASK_RIVER, MASK_WATER } from './sim/engine';
 import type { FacilityStatus } from './scene/MapScene';
+import { streetDepth } from './scene/MapScene';
+import { STREET } from './sim/scenarios';
 
 export interface SimGridInfo {
   width: number;
@@ -129,7 +131,7 @@ export function evalFacilities(fs: FacilityInfo[], d: Float32Array, tWet: Float3
     }
     const center = f.cells[Math.floor(f.cells.length / 2)];
     const dc = d[center] ?? 0;
-    const status: FacilityStatus = dc >= thr ? 'afectado' : depth >= 0.05 ? 'atencion' : 'seco';
+    const status: FacilityStatus = dc >= thr ? 'afectado' : depth >= 0.1 ? 'atencion' : 'seco';
     return { status, depth, firstWet: status === 'seco' ? -1 : first, byRiver: river };
   });
 }
@@ -156,4 +158,86 @@ export function fmtTime(s: number) {
   if (s === 0) return 't=0 (río)';
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
   return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+}
+
+// ---------- calles ----------
+
+/** Muestras cada ~15 m a lo largo de las calles de OSM, con su celda de simulación. */
+export interface StreetSamples {
+  cell: Int32Array;
+  urban: Uint8Array;
+  /** Índice del nombre de la calle en `names` (-1 = sin nombre). */
+  name: Int32Array;
+  paved: Uint8Array;
+  /** Largo representado por cada muestra (m). */
+  len: Float32Array;
+  names: string[];
+  totalKm: number;
+}
+
+export interface StreetLive {
+  wetKm: number; // agua en la calzada (≥ 2 cm)
+  curbKm: number; // agua sobre el cordón (≥ 10 cm)
+  impassableKm: number; // intransitable (≥ 30 cm)
+  dirtCurbKm: number; // calles de tierra con agua sobre el cordón
+  top: { name: string; km: number; maxDepth: number }[];
+}
+
+export function prepareStreets(data: AppData, sim: SimGridInfo, urbanCell: Uint8Array): StreetSamples | null {
+  if (!data.osm) return null;
+  const STEP = 15; // m
+  const mPerCellX = data.meta.cellX, mPerCellY = data.meta.cellY;
+  const cell: number[] = [], urban: number[] = [], name: number[] = [], paved: number[] = [], len: number[] = [];
+  const names: string[] = [];
+  const nameIdx = new Map<string, number>();
+  let total = 0;
+  for (const r of data.osm.roads) {
+    const n = r.n ?? '';
+    let ni = -1;
+    if (n) { ni = nameIdx.get(n) ?? -1; if (ni < 0) { ni = names.length; names.push(n); nameIdx.set(n, ni); } }
+    for (let k = 1; k < r.c.length; k++) {
+      const [ax, ay] = lonLatToCell(data.meta, r.c[k - 1][0], r.c[k - 1][1]);
+      const [bx, by] = lonLatToCell(data.meta, r.c[k][0], r.c[k][1]);
+      const segM = Math.hypot((bx - ax) * mPerCellX, (by - ay) * mPerCellY);
+      const steps = Math.max(1, Math.round(segM / STEP));
+      for (let t = 0; t < steps; t++) {
+        const f = (t + 0.5) / steps;
+        const sx = Math.floor((ax + (bx - ax) * f) / sim.factor), sy = Math.floor((ay + (by - ay) * f) / sim.factor);
+        if (sx < 0 || sy < 0 || sx >= sim.width || sy >= sim.height) continue;
+        const c = sy * sim.width + sx;
+        if (sim.mask[c] & (MASK_RIVER | MASK_WATER)) continue; // puentes y costaneras sobre el agua
+        cell.push(c); urban.push(urbanCell[c]); name.push(ni); paved.push(r.paved ? 1 : 0); len.push(segM / steps);
+        total += segM / steps;
+      }
+    }
+  }
+  return {
+    cell: Int32Array.from(cell), urban: Uint8Array.from(urban), name: Int32Array.from(name),
+    paved: Uint8Array.from(paved), len: Float32Array.from(len), names, totalKm: total / 1000,
+  };
+}
+
+export function evalStreets(st: StreetSamples, d: Float32Array): StreetLive {
+  let wet = 0, curb = 0, imp = 0, dirt = 0;
+  const byName = new Float64Array(st.names.length);
+  const maxByName = new Float32Array(st.names.length);
+  for (let i = 0; i < st.cell.length; i++) {
+    const sd = streetDepth(d[st.cell[i]], st.urban[i]);
+    if (sd < STREET.wet) continue;
+    const l = st.len[i];
+    wet += l;
+    if (sd >= STREET.curb) {
+      curb += l;
+      if (!st.paved[i]) dirt += l;
+      const ni = st.name[i];
+      if (ni >= 0) { byName[ni] += l; if (sd > maxByName[ni]) maxByName[ni] = sd; }
+    }
+    if (sd >= STREET.impassable) imp += l;
+  }
+  const top = st.names
+    .map((name, i) => ({ name, km: byName[i] / 1000, maxDepth: maxByName[i] }))
+    .filter((t) => t.km > 0.03)
+    .sort((a, b) => b.km - a.km)
+    .slice(0, 40);
+  return { wetKm: wet / 1000, curbKm: curb / 1000, impassableKm: imp / 1000, dirtCurbKm: dirt / 1000, top };
 }

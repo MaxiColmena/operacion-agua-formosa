@@ -86,7 +86,7 @@ const roadsRaw = await overpass('roads', `way[highway~"^(motorway|trunk|primary|
 const roads = (roadsRaw.elements as El[]).map((e) => ({
   k: /motorway|trunk|primary/.test(e.tags!.highway) ? 1 : /secondary|tertiary/.test(e.tags!.highway) ? 2 : 3,
   paved: !/unpaved|dirt|ground|earth|sand|gravel/.test(e.tags!.surface ?? ''),
-  n: /motorway|trunk|primary|secondary/.test(e.tags!.highway) ? e.tags!.name ?? '' : '',
+  n: e.tags!.name ?? '',
   c: line(e.geometry),
 }));
 

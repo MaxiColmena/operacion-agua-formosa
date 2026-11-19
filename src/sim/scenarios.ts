@@ -60,3 +60,21 @@ export const PRESETS: NamedScenario[] = [
     why: 'Río al récord de 1983 (10,73 m) con 100 mm de lluvia. Probar también con "falla de defensa".',
   },
 ];
+
+/**
+ * Agua en las calles. Con celdas de 30–60 m las calles no existen en el MDE: el agua de la manzana
+ * escurre a la calzada porque lotes y veredas están más altos. SUPUESTO: en zona urbana la calle
+ * ocupa ~35 % de la celda y concentra el agua de toda la celda.
+ */
+export const STREET = {
+  /** Fracción de la celda ocupada por calzada en zona urbana. */
+  share: 0.35,
+  /** Mínimo de edificios por celda de simulación (~60 m) para considerarla urbana. */
+  minBuildings: 4,
+  /** Desde esta profundidad se ve agua en la calzada (m). */
+  wet: 0.02,
+  /** Agua sobre el cordón: dificulta el tránsito (m). */
+  curb: 0.1,
+  /** Intransitable para autos y peatones (m). */
+  impassable: 0.3,
+};

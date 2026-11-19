@@ -3,10 +3,10 @@ import { loadAll, type AppData, type FacilityCat } from './data/load';
 import { MapScene, type Layers, type WaterMode } from './scene/MapScene';
 import type { WorkerIn, WorkerOut, SimStats } from './sim/worker';
 import type { Scenario } from './sim/engine';
-import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS } from './sim/scenarios';
+import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS, STREET } from './sim/scenarios';
 import {
-  evalBarrios, evalFacilities, fmtTime, prepareBarrios, prepareFacilities,
-  type BarrioInfo, type BarrioLive, type FacilityInfo, type FacilityLive, type Tier,
+  evalBarrios, evalFacilities, evalStreets, fmtTime, prepareBarrios, prepareFacilities, prepareStreets,
+  type BarrioInfo, type BarrioLive, type FacilityInfo, type FacilityLive, type StreetLive, type StreetSamples, type Tier,
 } from './analysis';
 
 const SIM_FACTOR = 2; // celdas de ~60 m en vivo
@@ -27,9 +27,11 @@ export default function App() {
   const [presetId, setPresetId] = useState<string | null>('n2');
   const [stats, setStats] = useState<SimStats | null>(null);
   const [speed, setSpeed] = useState(900);
-  const [layers, setLayers] = useState<Layers>({ water: true, zones: false, buildings: true, lines: true, labels: true });
+  const [layers, setLayers] = useState<Layers>({ water: true, zones: false, buildings: true, lines: true, labels: true, facilities: true });
   const [waterMode, setWaterMode] = useState<WaterMode>('depth');
-  const [tab, setTab] = useState<'barrios' | 'infra'>('barrios');
+  const [tab, setTab] = useState<'barrios' | 'infra' | 'calles'>('calles');
+  const [streets, setStreets] = useState<StreetLive | null>(null);
+  const streetRef = useRef<StreetSamples | null>(null);
   const [facLive, setFacLive] = useState<FacilityLive[]>([]);
   const [barLive, setBarLive] = useState<BarrioLive[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -72,6 +74,7 @@ export default function App() {
         barRef.current = prepareBarrios(data, info);
         setFacilities(facRef.current);
         setBarrios(barRef.current);
+        streetRef.current = scene.urbanCell ? prepareStreets(data, info, scene.urbanCell) : null;
       } else if (m.type === 'frame') {
         if (m.zEff) scene.setTerrainEff(m.zEff);
         if (simMaskRef.current) scene.setWaterFrame(m.d, m.tWet, m.byRiver, simMaskRef.current, m.stats.time);
@@ -85,10 +88,11 @@ export default function App() {
           scene.setBarrioLabelState(bl.map((b) => b.status));
           setFacLive(fl);
           setBarLive(bl);
+          if (streetRef.current) setStreets(evalStreets(streetRef.current, m.d));
           const cells = scene.buildingSimCell;
           if (cells) {
             let wet = 0, near = 0;
-            for (let k = 0; k < cells.length; k++) { const dv = m.d[cells[k]]; if (dv >= ASSUMPTIONS.wetThreshold) wet++; else if (dv >= 0.05) near++; }
+            for (let k = 0; k < cells.length; k++) { const dv = m.d[cells[k]]; if (dv >= ASSUMPTIONS.wetThreshold) wet++; else if (dv >= 0.1) near++; }
             setBld({ wet, near });
           }
         }
@@ -266,16 +270,28 @@ export default function App() {
         <div className="stats">
           <Stat label="Tiempo simulado" value={fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')} />
           <Stat label="Lluvia caída" value={`${(stats?.rainMm ?? 0).toFixed(0)} mm`} />
+          <Stat label="Calles con agua sobre el cordón" value={`${(streets?.curbKm ?? 0).toFixed(1)} km`} sub={`${(streets?.impassableKm ?? 0).toFixed(1)} km intransitables`} accent />
           <Stat label="Edificios con agua ≥ 15 cm" value={bld.wet.toLocaleString('es-AR')} sub={`${bld.near.toLocaleString('es-AR')} con agua cerca · de ${(data?.buildings?.count ?? 0).toLocaleString('es-AR')}`} accent />
           <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toFixed(1)} km²`} sub="estimado" />
           <Stat label="Instalaciones" value={`${affectedCounts.afectado}`} sub={`afectadas · ${affectedCounts.atencion} en atención`} accent />
         </div>
 
         <div className="tabs">
+          <button className={tab === 'calles' ? 'on' : ''} onClick={() => setTab('calles')}>Calles</button>
           <button className={tab === 'barrios' ? 'on' : ''} onClick={() => setTab('barrios')}>Barrios ({barrios.length})</button>
           <button className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')}>Infraestructura ({facilities.length})</button>
         </div>
+        {tab === 'calles' ? (
+          <div className="street-sum">
+            <div><b className="mono">{(streets?.wetKm ?? 0).toFixed(1)}</b><span>km con agua en la calzada (≥ {STREET.wet * 100} cm)</span></div>
+            <div className="c2"><b className="mono">{(streets?.curbKm ?? 0).toFixed(1)}</b><span>km con agua sobre el cordón (≥ {STREET.curb * 100} cm)</span></div>
+            <div className="c3"><b className="mono">{(streets?.impassableKm ?? 0).toFixed(1)}</b><span>km intransitables (≥ {STREET.impassable * 100} cm)</span></div>
+            <div className="c4"><b className="mono">{(streets?.dirtCurbKm ?? 0).toFixed(1)}</b><span>km de calles de tierra sobre el cordón</span></div>
+            <p className="list-help">Calles con más kilómetros de agua sobre el cordón. Profundidad estimada: en zona urbana se supone que el agua de la manzana se junta en la calzada.</p>
+          </div>
+        ) : (
         <p className="list-help">Orden de afectación en esta simulación. <b>Nivel</b> = en qué escenario de referencia se afecta primero (1º lluvia fuerte · 2º temporal severo · 3º extremo).</p>
+        )}
 
         {tab === 'infra' && (
           <div className="filters">
@@ -300,6 +316,13 @@ export default function App() {
               <span className="mono time">{fmtTime(l?.firstWet ?? -1)}</span>
             </li>
           ))}
+          {tab === 'calles' && streets?.top.map((t) => (
+            <li key={t.name} className={t.maxDepth >= STREET.impassable ? 'st-afectado' : 'st-atencion'}>
+              <div className="li-main"><b>{t.name}</b><span>máx. {(t.maxDepth * 100).toFixed(0)} cm en la calzada</span></div>
+              <span className="mono time">{t.km.toFixed(2)} km</span>
+            </li>
+          ))}
+          {tab === 'calles' && !streets?.top.length && <li className="empty">Sin calles con agua sobre el cordón. Probá "Hacer llover".</li>}
           {tab === 'barrios' && !barrios.length && <li className="empty">Sin barrios de OpenStreetMap cargados.</li>}
           {tab === 'infra' && !facilities.length && <li className="empty">Sin infraestructura de OpenStreetMap cargada.</li>}
         </ol>
@@ -337,7 +360,8 @@ export default function App() {
           <Toggle on={layers.zones} onClick={() => setLayers({ ...layers, zones: !layers.zones })}>Zonas 1º · 2º · 3º</Toggle>
           <Toggle on={layers.buildings} onClick={() => setLayers({ ...layers, buildings: !layers.buildings })}>Edificios</Toggle>
           <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}>Calles y riachos</Toggle>
-          <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}>Barrios</Toggle>
+          <Toggle on={layers.facilities} onClick={() => setLayers({ ...layers, facilities: !layers.facilities })}>Instalaciones</Toggle>
+          <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}>Nombres</Toggle>
           <span className="sep" />
           <Toggle on={waterMode === 'order'} onClick={() => setWaterMode(waterMode === 'order' ? 'depth' : 'order')}>Color: {waterMode === 'order' ? 'orden de llegada' : 'profundidad'}</Toggle>
           <button className="btn ghost" onClick={() => setShowInfo(true)}>ⓘ Supuestos, datos y límites</button>
@@ -393,6 +417,11 @@ function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
         <span><i style={{ background: '#ff8c26' }} />2do</span>
         <span><i style={{ background: '#ffe04d' }} />3er</span>
       </>)}
+      {layers.lines && (<>
+        <span><i style={{ background: '#73e0ff' }} />calle mojada</span>
+        <span><i style={{ background: '#1a66ff' }} />sobre el cordón</span>
+        <span><i style={{ background: '#ff3352' }} />calle intransitable</span>
+      </>)}
       <span><i style={{ background: '#38e8ff' }} />sin agua</span>
       <span><i style={{ background: '#ffc53d' }} />atención</span>
       <span><i style={{ background: '#ff3b5c' }} />afectada</span>
@@ -426,6 +455,7 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
             <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Estimado: superficie del río en el MDE menos una altura típica. <b>Falta el dato oficial del INA.</b></td></tr>
             <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Supuesto (≈ 11,7 m de escala, por encima de 1983). Traza de OSM, si existe.</td></tr>
             <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>No hay datos públicos de la red pluvial. Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
+            <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
             <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
             <tr><td>Umbral de afectación</td><td className="mono">{ASSUMPTIONS.wetThreshold * 100} cm</td><td>Agua que dificulta el tránsito y entra a veredas.</td></tr>
           </tbody>
