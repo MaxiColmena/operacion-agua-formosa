@@ -205,6 +205,13 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 }
 .exag span { min-width: 64px; font-variant-numeric: tabular-nums; }
 .exag input[type='range'] { width: 90px; margin: 0; cursor: pointer; }
+.freecam-help {
+  position: absolute; left: 50%; top: 92px; transform: translateX(-50%); z-index: 3; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 3px; width: max-content; max-width: min(560px, calc(100% - 32px));
+  padding: 7px 14px; border-radius: 12px; font-size: 12px; text-align: center; color: var(--muted);
+  background: var(--panel); border: 1px solid var(--cyan); backdrop-filter: blur(12px);
+}
+.freecam-help b { color: var(--text); }
 .layers .btn.ghost { margin-left: auto; padding: 5px 12px; font-size: 12px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }

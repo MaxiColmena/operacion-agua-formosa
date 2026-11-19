@@ -9,6 +9,7 @@ import type { AppData, Buildings, Facility, TerrainMeta } from '../data/load';
 import { lonLatToCell } from '../data/load';
 import { MASK_DEFENSE, MASK_RIVER } from '../sim/engine';
 import { STREET } from '../sim/scenarios';
+import { FreeCamera, type FreeCameraState } from './FreeCamera';
 
 /** Exageración vertical por defecto: la ciudad tiene ~20 m de desnivel en 16 km (casi plana). */
 export const DEFAULT_EXAG = 8;
@@ -29,15 +30,21 @@ export interface Layers {
   facilities: boolean;
 }
 
+/** Seco: tono apagado (por debajo del umbral de bloom); atención/afectado: vivos para resaltar. */
 const STATUS_COLOR: Record<FacilityStatus, THREE.Color> = {
-  seco: new THREE.Color('#38e8ff'),
+  seco: new THREE.Color('#a9b6c9'),
   atencion: new THREE.Color('#ffc53d'),
   afectado: new THREE.Color('#ff3b5c'),
 };
 
+/** Altura (km) del poste de cada instalación en estado seco: marcadores bajos y discretos. */
 const CAT_HEIGHT: Record<string, number> = {
-  hospital: 1.1, salud: 0.7, escuela: 0.55, seguridad: 0.6, servicios: 0.8, refugio: 0.6, transporte: 0.7,
+  hospital: 0.09, salud: 0.065, escuela: 0.045, seguridad: 0.05, servicios: 0.055, refugio: 0.05, transporte: 0.05,
 };
+/** Tamaño relativo del marcador por categoría (los hospitales algo mayores). */
+const CAT_SIZE: Record<string, number> = { hospital: 1.45, salud: 1.15 };
+/** Altura (km) del haz cuando la instalación requiere atención o está afectada. */
+const ALERT_HEIGHT: Record<FacilityStatus, number> = { seco: 0, atencion: 0.28, afectado: 0.5 };
 
 /** Profundidad del agua en la calzada: en zona urbana el agua de la celda se concentra en la calle. */
 export function streetDepth(d: number, urban: number) {
@@ -66,6 +73,7 @@ export class MapScene {
   private bases: THREE.InstancedMesh | null = null;
   private facilityPos: THREE.Vector3[] = [];
   private facilities: Facility[] = [];
+  private facilityStatus: FacilityStatus[] = [];
   private rain!: THREE.LineSegments;
   private rainCount = 0;
   private labels: CSS2DObject[] = [];
@@ -109,6 +117,12 @@ export class MapScene {
     this.controls.maxPolarAngle = Math.PI * 0.47;
     this.controls.minDistance = 0.6;
     this.controls.maxDistance = 30;
+    this.freeCam = new FreeCamera(this.camera, this.controls, this.renderer.domElement, {
+      groundY: (x, z) => this.surfaceYAt(x, z),
+      halfW: this.widthKm / 2,
+      halfH: this.heightKm / 2,
+    });
+    this.freeCam.onChange = (s) => this.onFreeCameraChange?.(s);
 
     this.scene.add(new THREE.AmbientLight('#7fb6ff', 0.6));
     const sun = new THREE.DirectionalLight('#ffffff', 1.0);
@@ -165,6 +179,38 @@ export class MapScene {
     const a = this.z[i], b = this.z[i + 1], c = this.z[i + w], d = this.z[i + w + 1];
     return a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy;
   }
+  /** Altura del suelo (mundo, km) en una posición x/z de mundo, con la exageración actual. */
+  groundYAt(x: number, z: number) {
+    const cx = (x / this.widthKm + 0.5) * this.meta.width;
+    const cy = (z / this.heightKm + 0.5) * this.meta.height;
+    return this.elevToY(this.elevAt(cx, cy));
+  }
+  /** Como groundYAt pero sin meterse bajo la superficie del agua visible (río/inundación). */
+  surfaceYAt(x: number, z: number) {
+    let y = this.groundYAt(x, z);
+    const { w, h } = this.waterGrid;
+    if (this.water?.visible && w > 1 && h > 1) {
+      const pos = this.water.geometry.attributes.position as THREE.BufferAttribute;
+      const fx = (x / (this.widthKm * (1 - 1 / w)) + 0.5) * (w - 1);
+      const fz = (z / (this.heightKm * (1 - 1 / h)) + 0.5) * (h - 1);
+      const x0 = Math.max(0, Math.min(w - 2, Math.floor(fx))), z0 = Math.max(0, Math.min(h - 2, Math.floor(fz)));
+      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) y = Math.max(y, pos.getY((z0 + j) * w + x0 + i));
+    }
+    return y;
+  }
+
+  // ---------- cámara libre ----------
+  private freeCam: FreeCamera;
+  /** Se llama al entrar/salir de la cámara libre (botón, F o Esc) y al cambiar su velocidad. */
+  onFreeCameraChange: ((s: FreeCameraState) => void) | null = null;
+  get freeCamera() {
+    return this.freeCam.active;
+  }
+  setFreeCamera(on: boolean) {
+    if (on) this.fly = null;
+    this.freeCam.set(on);
+  }
+
   lonLatToWorld(lon: number, lat: number, lift = 0) {
     const [cx, cy] = lonLatToCell(this.meta, lon, lat);
     const p = this.cellToWorld(cx, cy, this.elevAt(cx, cy));
@@ -556,14 +602,34 @@ export class MapScene {
     this.facilities = list;
     const n = list.length;
     if (!n) return;
-    const beamGeo = new THREE.CylinderGeometry(0.012, 0.03, 1, 10, 1, true).translate(0, 0.5, 0);
-    const beamMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false });
+    // Poste fino que se apaga hacia la punta (color por vértice × color por instancia).
+    const beamGeo = new THREE.CylinderGeometry(0.007, 0.011, 1, 8, 1, false).translate(0, 0.5, 0);
+    const fade = new Float32Array(beamGeo.attributes.position.count * 3);
+    for (let k = 0; k < beamGeo.attributes.position.count; k++) {
+      const g = 1 - 0.6 * beamGeo.attributes.position.getY(k);
+      fade.set([g, g, g], k * 3);
+    }
+    beamGeo.setAttribute('color', new THREE.BufferAttribute(fade, 3));
+    const beamMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false });
     this.beams = new THREE.InstancedMesh(beamGeo, beamMat, n);
-    const baseGeo = new THREE.RingGeometry(0.025, 0.05, 24).rotateX(-Math.PI / 2);
-    const baseMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+    // Disco chato tipo "badge": centro tenue y borde algo más marcado. Se dibuja por encima
+    // de los edificios (sin depthTest) para que el punto se lea aun entre manzanas densas.
+    const R = 0.032;
+    const baseGeo = new THREE.CircleGeometry(R, 24).rotateX(-Math.PI / 2);
+    const rim = new Float32Array(baseGeo.attributes.position.count * 3);
+    for (let k = 0; k < baseGeo.attributes.position.count; k++) {
+      const r = Math.hypot(baseGeo.attributes.position.getX(k), baseGeo.attributes.position.getZ(k)) / R;
+      const g = 0.4 + 0.6 * r;
+      rim.set([g, g, g], k * 3);
+    }
+    baseGeo.setAttribute('color', new THREE.BufferAttribute(rim, 3));
+    const baseMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
     this.bases = new THREE.InstancedMesh(baseGeo, baseMat, n);
+    this.bases.renderOrder = 3;
+    this.beams.renderOrder = 2;
     list.forEach((_, i) => {
       this.facilityPos.push(new THREE.Vector3());
+      this.facilityStatus.push('seco');
       this.beams!.setColorAt(i, STATUS_COLOR.seco);
       this.bases!.setColorAt(i, STATUS_COLOR.seco);
     });
@@ -571,18 +637,37 @@ export class MapScene {
     this.scene.add(this.beams, this.bases);
   }
 
-  /** Ubica haces y bases sobre el terreno con la exageración actual. */
+  /** Altura actual del marcador: poste bajo si está seco, haz más alto si requiere atención. */
+  private facilityHeight(i: number) {
+    const s = this.facilityStatus[i] ?? 'seco';
+    const base = CAT_HEIGHT[this.facilities[i].cat] ?? 0.05;
+    return s === 'seco' ? base : ALERT_HEIGHT[s] * (CAT_SIZE[this.facilities[i].cat] ?? 1) ** 0.5;
+  }
+
+  /** Escribe las matrices del poste y del disco de la instalación i (pulse: factor del disco). */
+  private setFacilityMatrix(i: number, pulse = 1) {
+    const m = this._fm, q = this._fq, s = this._fs;
+    const p = this.facilityPos[i];
+    const size = CAT_SIZE[this.facilities[i].cat] ?? 1;
+    const alert = this.facilityStatus[i] !== 'seco';
+    s.set(size * (alert ? 1.15 : 1), this.facilityHeight(i), size * (alert ? 1.15 : 1));
+    m.compose(p, q, s);
+    this.beams!.setMatrixAt(i, m);
+    const b = size * pulse;
+    s.set(b, 1, b);
+    m.compose(p, q, s);
+    this.bases!.setMatrixAt(i, m);
+  }
+  private _fm = new THREE.Matrix4();
+  private _fq = new THREE.Quaternion();
+  private _fs = new THREE.Vector3();
+
+  /** Ubica postes y discos sobre el terreno con la exageración actual. */
   private placeFacilities() {
     if (!this.beams || !this.bases) return;
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const one = new THREE.Vector3(1, 1, 1);
     this.facilities.forEach((f, i) => {
-      const p = this.facilityPos[i].copy(this.lonLatToWorld(f.lon, f.lat, 0.003));
-      m.compose(p, q, new THREE.Vector3(1, CAT_HEIGHT[f.cat] ?? 0.5, 1));
-      this.beams!.setMatrixAt(i, m);
-      m.compose(p, q, one);
-      this.bases!.setMatrixAt(i, m);
+      this.facilityPos[i].copy(this.lonLatToWorld(f.lon, f.lat, 0.003));
+      this.setFacilityMatrix(i);
     });
     this.beams.instanceMatrix.needsUpdate = true;
     this.bases.instanceMatrix.needsUpdate = true;
@@ -590,15 +675,40 @@ export class MapScene {
     this.bases.computeBoundingSphere();
   }
 
+  /** Late el disco de las instalaciones en atención/afectadas; las secas quedan quietas. */
+  private updateFacilityPulse(t: number) {
+    if (!this.beams || !this.bases || !this.bases.visible) return;
+    let any = false;
+    for (let i = 0; i < this.facilityStatus.length; i++) {
+      const s = this.facilityStatus[i];
+      if (s === 'seco') continue;
+      any = true;
+      const w = 0.5 + 0.5 * Math.sin(t * (s === 'afectado' ? 3.2 : 2) + i * 0.7);
+      this.setFacilityMatrix(i, s === 'afectado' ? 1.5 + 0.9 * w : 1.25 + 0.4 * w);
+    }
+    if (any) this.bases.instanceMatrix.needsUpdate = true;
+  }
+
   setFacilityStatus(status: FacilityStatus[]) {
     this.facilityLabels.forEach((o) => { o.element.dataset.state = status[o.userData.index] ?? 'seco'; });
     if (!this.beams || !this.bases) return;
+    let changed = false;
     status.forEach((s, i) => {
+      if (this.facilityStatus[i] !== s) {
+        this.facilityStatus[i] = s;
+        this.setFacilityMatrix(i);
+        changed = true;
+      }
       this.beams!.setColorAt(i, STATUS_COLOR[s]);
       this.bases!.setColorAt(i, STATUS_COLOR[s]);
     });
     this.beams.instanceColor!.needsUpdate = true;
     this.bases.instanceColor!.needsUpdate = true;
+    if (changed) {
+      this.beams.instanceMatrix.needsUpdate = true;
+      this.bases.instanceMatrix.needsUpdate = true;
+      this.beams.computeBoundingSphere();
+    }
   }
 
   /** Busca la instalación más cercana al punto de pantalla (px), dentro de 14 px. */
@@ -607,7 +717,7 @@ export class MapScene {
     let best = -1, bestD = 14 * 14;
     const v = new THREE.Vector3();
     this.facilityPos.forEach((p, i) => {
-      for (const lift of [0, (CAT_HEIGHT[this.facilities[i].cat] ?? 0.5) * 0.5]) {
+      for (const lift of [0, this.facilityHeight(i) * 0.5, this.facilityHeight(i)]) {
         v.copy(p); v.y += lift; v.project(this.camera);
         if (v.z > 1) continue;
         const x = ((v.x + 1) / 2) * rect.width + rect.left, y = ((1 - v.y) / 2) * rect.height + rect.top;
@@ -639,6 +749,8 @@ export class MapScene {
   private highlightIndex: number | null = null;
   private fly: { from: THREE.Vector3; to: THREE.Vector3; tFrom: THREE.Vector3; tTo: THREE.Vector3; t: number } | null = null;
   flyTo(target: THREE.Vector3, camPos: THREE.Vector3) {
+    // Desde la cámara libre: se sale (sin salto) y se vuela en modo órbita.
+    this.freeCam.set(false);
     this.fly = { from: this.camera.position.clone(), to: camPos, tFrom: this.controls.target.clone(), tTo: target.clone(), t: 0 };
   }
 
@@ -828,6 +940,7 @@ export class MapScene {
     this.terrainMat.uniforms.uTime.value = t;
     if (this.waterMat) this.waterMat.uniforms.uTime.value = t;
     if (this.bldMat) this.bldMat.uniforms.uTime.value = t;
+    this.updateFacilityPulse(t);
     if (this.fly) {
       this.fly.t = Math.min(1, this.fly.t + dt * 1.2);
       const e = 1 - Math.pow(1 - this.fly.t, 3);
@@ -840,7 +953,8 @@ export class MapScene {
       this.highlight.scale.set(s, 1, s);
     }
     this.updateRain(dt);
-    this.controls.update();
+    this.freeCam.update(dt);
+    if (!this.freeCam.active) this.controls.update();
     this.composer.render();
     this.labelRenderer.render(this.scene, this.camera);
     if (++this.frame % 12 === 0) this.declutter();
@@ -869,6 +983,7 @@ export class MapScene {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.onResize);
+    this.freeCam.dispose();
     this.controls.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

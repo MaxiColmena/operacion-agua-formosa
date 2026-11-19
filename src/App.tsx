@@ -41,6 +41,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState({ left: false, right: false });
   const [bld, setBld] = useState({ wet: 0, near: 0 });
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
+  const [freeCam, setFreeCam] = useState({ active: false, speed: 1 });
 
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -63,6 +64,7 @@ export default function App() {
     if (!data || !mountRef.current) return;
     const scene = new MapScene(mountRef.current, data);
     sceneRef.current = scene;
+    scene.onFreeCameraChange = (s) => setFreeCam(s);
     const worker = new Worker(new URL('./sim/worker.ts', import.meta.url), { type: 'module' });
     workerRef.current = worker;
     worker.onmessage = (e: MessageEvent<WorkerOut>) => {
@@ -373,12 +375,23 @@ export default function App() {
             <input type="range" min={EXAG_MIN} max={EXAG_MAX} step={1} value={exag} onChange={(e) => setExag(Number(e.target.value))}
               aria-label="Exageración vertical del relieve" />
           </label>
+          <button className={`toggle freecam-btn ${freeCam.active ? 'on' : ''}`} title="Navegar como un dron (tecla F)"
+            onClick={(e) => { e.currentTarget.blur(); sceneRef.current?.setFreeCamera(!freeCam.active); }}>
+            ✈ Cámara libre
+          </button>
           <span className="sep" />
           <Toggle on={waterMode === 'order'} onClick={() => setWaterMode(waterMode === 'order' ? 'depth' : 'order')}>Color: {waterMode === 'order' ? 'orden de llegada' : 'profundidad'}</Toggle>
           <button className="btn ghost" onClick={() => setShowInfo(true)}>ⓘ Supuestos, datos y límites</button>
         </div>
         <Legend layers={layers} mode={waterMode} />
       </footer>
+
+      {freeCam.active && (
+        <div className="freecam-help" role="status">
+          <div><b>Cámara libre</b> · velocidad ×{freeCam.speed.toFixed(2).replace(/\.?0+$/, '')}</div>
+          <span>WASD / flechas: mover · Q/E: bajar/subir · Shift: rápido · arrastrar: mirar · rueda: velocidad · F o Esc: salir</span>
+        </div>
+      )}
 
       {showInfo && <InfoModal data={data} onClose={() => setShowInfo(false)} />}
     </div>
@@ -433,9 +446,11 @@ function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
         <span><i style={{ background: '#1a66ff' }} />sobre el cordón</span>
         <span><i style={{ background: '#ff3352' }} />calle intransitable</span>
       </>)}
-      <span><i style={{ background: '#38e8ff' }} />sin agua</span>
-      <span><i style={{ background: '#ffc53d' }} />atención</span>
-      <span><i style={{ background: '#ff3b5c' }} />afectada</span>
+      {layers.facilities && (<>
+        <span><i style={{ background: '#a9b6c9' }} />instalación sin agua</span>
+        <span><i style={{ background: '#ffc53d' }} />atención (haz)</span>
+        <span><i style={{ background: '#ff3b5c' }} />afectada (haz + pulso)</span>
+      </>)}
     </div>
   );
 }
