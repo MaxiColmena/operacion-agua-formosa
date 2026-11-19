@@ -134,3 +134,48 @@ describe('modelo ficticio de Formosa', () => {
     expect(profundidad.some((p) => p > 0)).toBe(true);
   });
 });
+
+describe('modelo sobre la geografía real (OSM)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { armarGeografia } = await import('../src/mapa/ciudad.js');
+  const { DRENAJE } = await import('../src/escenario/datos-ficticios.js');
+  const osm = JSON.parse(readFileSync(new URL('../public/datos/formosa-osm.json', import.meta.url), 'utf8'));
+  const geo = armarGeografia(
+    osm.agua.filter((a) => !a.cerrado),
+    osm.agua.filter((a) => a.cerrado).map((a) => a.c),
+  );
+  const modelo = crearModelo(geo);
+  const agua = (nivelRio, conFalla = false) =>
+    calcularAgua({
+      cotaTerreno: modelo.cotaTerreno,
+      esRio: modelo.esRio,
+      ...modelo.precalculo[conFalla ? 'falla' : 'normal'],
+      nivelRio,
+      lluviaMm: 0,
+      ceroEscala: CERO_ESCALA,
+      drenaje: DRENAJE,
+    });
+  const contar = ({ origen }, soloDentro) => {
+    let n = 0;
+    for (let i = 0; i < origen.length; i++) if (origen[i] === 1 && (!soloDentro || modelo.dentroDefensa[i])) n++;
+    return n;
+  };
+
+  it('usa el Paraguay y el Riacho Formosa como ríos', () => {
+    expect(geo.rios.length).toBeGreaterThanOrEqual(2);
+    expect(modelo.esRio.some(Boolean)).toBe(true);
+  });
+
+  it('en aguas medias (4,8 m) casi no hay desborde', () => {
+    expect(contar(agua(4.8))).toBeLessThan(100);
+  });
+
+  it('con la defensa sana no entra agua del río a la ciudad hasta el coronamiento', () => {
+    expect(contar(agua(9.1), true)).toBe(0);
+    expect(contar(agua(9.1))).toBeGreaterThan(contar(agua(7.8)));
+  });
+
+  it('con falla de la defensa el agua entra a la ciudad', () => {
+    expect(contar(agua(9.5, true), true)).toBeGreaterThan(0);
+  });
+});

@@ -421,3 +421,26 @@ canvas {
   pointer-events: none;
   white-space: nowrap;
 }
+
+.ancho {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.btn-texto {
+  margin-top: 6px;
+  width: 100%;
+  padding: 6px;
+  background: rgba(255, 200, 60, 0.12);
+  border: 1px solid var(--amarillo);
+  color: var(--amarillo);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.afectacion li.mas {
+  color: var(--tenue);
+  font-size: 11px;
+  display: block;
+}

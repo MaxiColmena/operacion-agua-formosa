@@ -1,60 +1,79 @@
 // Capas de deck.gl. Sirven igual sobre Google Maps o en el modo sin Google.
+// Ciudad real (OpenStreetMap): calles, plazas, agua, escuelas y salud.
+// Agua de la simulación: un cubo por celda mojada (GridCellLayer con datos binarios: rápido).
 
-import { SolidPolygonLayer, PathLayer, ColumnLayer, TextLayer, ScatterplotLayer } from '@deck.gl/layers';
-import {
-  RIO,
-  DEFENSA,
-  BRECHA,
-  CORONAMIENTO,
-  CERO_ESCALA,
-  TIPOS_INFRA,
-  COLUMNAS,
-  FILAS,
-} from '../escenario/datos-ficticios.js';
-import { poligonoDeCelda, centroDeCelda } from '../escenario/terreno.js';
+import { SolidPolygonLayer, PathLayer, ColumnLayer, GridCellLayer, TextLayer, ScatterplotLayer } from '@deck.gl/layers';
+import { TIPOS_INFRA, COLUMNAS, FILAS, AREA } from '../escenario/datos-ficticios.js';
+import { centroDeCelda, TAMANO_CELDA_M } from '../escenario/terreno.js';
 
-const COTA_BASE = CERO_ESCALA - 6;
+const ANCHO_CELDA_LON = (AREA.este - AREA.oeste) / COLUMNAS;
+const ALTO_CELDA_LAT = (AREA.norte - AREA.sur) / FILAS;
+const TOTAL = COLUMNAS * FILAS;
 
-const TODAS_LAS_CELDAS = Array.from({ length: COLUMNAS * FILAS }, (_, i) => i);
-const POLIGONOS = TODAS_LAS_CELDAS.map(poligonoDeCelda);
+// Esquina suroeste de cada celda (lo que espera GridCellLayer).
+const ESQUINAS = new Float32Array(TOTAL * 2);
+for (let i = 0; i < TOTAL; i++) {
+  const x = i % COLUMNAS;
+  const y = (i - x) / COLUMNAS;
+  ESQUINAS[i * 2] = AREA.oeste + x * ANCHO_CELDA_LON;
+  ESQUINAS[i * 2 + 1] = AREA.sur + y * ALTO_CELDA_LAT;
+}
+// El lado de la celda en metros (un poco más para que no queden rendijas entre cubos).
+const LADO_CELDA_M = Math.max(ANCHO_CELDA_LON * 99900, ALTO_CELDA_LAT * 111320) + 1;
 
-// Manzanas ficticias: un bloque en parte de las celdas dentro del anillo.
-function generarManzanas(modelo) {
-  const manzanas = [];
-  for (let i = 0; i < modelo.cotaTerreno.length; i++) {
-    if (!modelo.dentroDefensa[i] || modelo.esDefensa[i]) continue;
-    const semilla = Math.sin(i * 12.9898) * 43758.5453;
-    const azar = semilla - Math.floor(semilla);
-    if (azar < 0.45) continue;
-    const [c0, , c2] = POLIGONOS[i];
-    const margenLon = (c2[0] - c0[0]) * 0.17;
-    const margenLat = (c2[1] - c0[1]) * 0.17;
-    manzanas.push({
-      celda: i,
-      altura: 4 + Math.round(azar * 14),
-      contorno: [
-        [c0[0] + margenLon, c0[1] + margenLat],
-        [c2[0] - margenLon, c0[1] + margenLat],
-        [c2[0] - margenLon, c2[1] - margenLat],
-        [c0[0] + margenLon, c2[1] - margenLat],
-      ],
-    });
+// Buffers del agua, se reutilizan entre cuadros.
+const bufPos = new Float32Array(TOTAL * 2);
+const bufAlto = new Float32Array(TOTAL);
+const bufColor = new Uint8Array(TOTAL * 4);
+const bufCelda = new Int32Array(TOTAL);
+let cacheAgua = { clave: null, datos: null };
+
+function datosDelAgua(agua, clave) {
+  if (cacheAgua.clave === clave) return cacheAgua.datos;
+  const { profundidad, origen } = agua;
+  let n = 0;
+  for (let i = 0; i < TOTAL; i++) {
+    const p = profundidad[i];
+    if (p <= 0) continue;
+    bufPos[n * 2] = ESQUINAS[i * 2];
+    bufPos[n * 2 + 1] = ESQUINAS[i * 2 + 1];
+    const t = Math.min(1, p / 3);
+    const k = n * 4;
+    if (origen[i] === 3) {
+      // Cauce: lámina plana (su profundidad real no aporta nada visual).
+      bufAlto[n] = 0.2;
+      bufColor[k] = 25;
+      bufColor[k + 1] = 105;
+      bufColor[k + 2] = 215;
+      bufColor[k + 3] = 200;
+    } else if (origen[i] === 2) {
+      bufAlto[n] = Math.max(0.15, p);
+      bufColor[k] = 70;
+      bufColor[k + 1] = 235 - 60 * t;
+      bufColor[k + 2] = 255;
+      bufColor[k + 3] = 170 + 70 * t;
+    } else {
+      bufAlto[n] = Math.max(0.15, p);
+      bufColor[k] = 30;
+      bufColor[k + 1] = 165 - 95 * t;
+      bufColor[k + 2] = 255;
+      bufColor[k + 3] = 180 + 70 * t;
+    }
+    bufCelda[n] = i;
+    n++;
   }
-  return manzanas;
-}
-
-let cacheManzanas = null;
-
-function colorTerreno(cota, modelo) {
-  const t = Math.min(1, Math.max(0, (cota - modelo.cotaMin) / (modelo.cotaMax - modelo.cotaMin)));
-  return [16 + 34 * t, 26 + 52 * t, 34 + 48 * t, 255];
-}
-
-function colorAgua(profundidad, origen) {
-  if (origen === 3) return [25, 110, 220, 170];
-  const t = Math.min(1, profundidad / 3);
-  if (origen === 2) return [70, 235 - 60 * t, 255, 150 + 80 * t];
-  return [30, 165 - 95 * t, 255, 160 + 80 * t];
+  // subarray crea vistas nuevas: deck.gl detecta el cambio y sube solo lo necesario.
+  const datos = {
+    length: n,
+    celdas: bufCelda.subarray(0, n),
+    attributes: {
+      getPosition: { value: bufPos.subarray(0, n * 2), size: 2 },
+      getElevation: { value: bufAlto.subarray(0, n), size: 1 },
+      getFillColor: { value: bufColor.subarray(0, n * 4), size: 4, normalized: true },
+    },
+  };
+  cacheAgua = { clave, datos };
+  return datos;
 }
 
 export function colorEstadoInfra(item) {
@@ -63,210 +82,196 @@ export function colorEstadoInfra(item) {
   return [...TIPOS_INFRA[item.tipo].color, 255];
 }
 
-// estado: { exageracion, mostrarTerreno, mostrarManzanas, conFalla, agua, infra, tiempoClave }
-export function crearCapas(modelo, estado, alPasar) {
-  const exag = estado.exageracion;
-  const { profundidad, origen, cotaAgua } = estado.agua;
-  const zTerreno = (i) => (estado.mostrarTerreno ? (modelo.cotaTerreno[i] - COTA_BASE) * exag : 0);
-  const claveAgua = estado.tiempoClave;
-  const capas = [];
+const COLOR_CALLE = { 1: [120, 220, 255, 230], 2: [90, 190, 240, 170], 3: [70, 150, 210, 95] };
+const ANCHO_CALLE = { 1: 14, 2: 9, 3: 5 };
+const MEDIDA_INFRA = {
+  escuela: { radio: 42, alto: 70 },
+  salud: { radio: 70, alto: 130 },
+};
 
-  if (estado.mostrarTerreno) {
-    capas.push(
-      new SolidPolygonLayer({
-        id: 'terreno',
-        data: TODAS_LAS_CELDAS,
-        getPolygon: (i) => POLIGONOS[i],
-        extruded: true,
-        wireframe: false,
-        getElevation: (i) => Math.max(1, zTerreno(i)),
-        getFillColor: (i) => colorTerreno(modelo.cotaTerreno[i], modelo),
-        material: { ambient: 0.6, diffuse: 0.45, shininess: 8, specularColor: [10, 30, 40] },
-        pickable: true,
-        onHover: alPasar,
-        updateTriggers: { getElevation: [exag] },
-      }),
-    );
-  }
-
-  capas.push(
-    new SolidPolygonLayer({
-      id: 'agua',
-      data: TODAS_LAS_CELDAS,
-      getPolygon: (i) => POLIGONOS[i],
-      extruded: true,
-      getElevation: (i) => {
-        if (profundidad[i] <= 0) return 0;
-        if (estado.mostrarTerreno) return (Math.max(cotaAgua, modelo.cotaTerreno[i] + profundidad[i]) - COTA_BASE) * exag;
-        return Math.max(2, profundidad[i] * exag);
-      },
-      getFillColor: (i) => (profundidad[i] > 0 ? colorAgua(profundidad[i], origen[i]) : [0, 0, 0, 0]),
-      material: { ambient: 0.6, diffuse: 0.5, shininess: 80, specularColor: [180, 230, 255] },
+// Capas fijas de la ciudad: se crean una sola vez.
+let capasCiudad = null;
+function crearCapasCiudad(ciudad) {
+  return {
+    aguaReal: new SolidPolygonLayer({
+      id: 'agua-osm',
+      data: ciudad.aguaPoligonos,
+      getPolygon: (d) => d,
+      getFillColor: [18, 70, 140, 200],
       parameters: { depthWriteEnabled: false },
-      pickable: !estado.mostrarTerreno,
-      onHover: alPasar,
-      transitions: { getElevation: 250 },
-      updateTriggers: {
-        getElevation: [claveAgua, exag, estado.mostrarTerreno],
-        getFillColor: [claveAgua],
-      },
     }),
-  );
+    aguaLineas: new PathLayer({
+      id: 'agua-osm-lineas',
+      data: ciudad.aguaLineas,
+      getPath: (d) => d,
+      getColor: [40, 140, 230, 200],
+      getWidth: 12,
+      widthMinPixels: 1.5,
+    }),
+    plazas: new SolidPolygonLayer({
+      id: 'plazas',
+      data: ciudad.plazas,
+      getPolygon: (d) => d.c,
+      extruded: true,
+      getElevation: 3,
+      getFillColor: [60, 210, 140, 110],
+      material: { ambient: 0.8, diffuse: 0.3 },
+    }),
+  };
+}
 
-  if (estado.mostrarManzanas) {
-    cacheManzanas ??= generarManzanas(modelo);
-    capas.push(
-      new SolidPolygonLayer({
-        id: 'manzanas',
-        data: cacheManzanas,
-        getPolygon: (m) => m.contorno.map(([lon, lat]) => [lon, lat, zTerreno(m.celda)]),
+// Defensa: las celdas del anillo como un muro bajo (se arma una vez por modelo).
+const cacheDefensa = new Map();
+function capaDefensa(modelo, conFalla) {
+  const clave = conFalla ? 'falla' : 'normal';
+  if (cacheDefensa.get('modelo') !== modelo) {
+    cacheDefensa.clear();
+    cacheDefensa.set('modelo', modelo);
+  }
+  if (!cacheDefensa.has(clave)) {
+    const celdas = [];
+    for (let i = 0; i < TOTAL; i++) if (modelo.esDefensa[i] && !(conFalla && modelo.esBrecha[i])) celdas.push(i);
+    const pos = new Float32Array(celdas.length * 2);
+    celdas.forEach((i, k) => {
+      pos[k * 2] = ESQUINAS[i * 2];
+      pos[k * 2 + 1] = ESQUINAS[i * 2 + 1];
+    });
+    cacheDefensa.set(
+      clave,
+      new GridCellLayer({
+        id: 'defensa',
+        data: { length: celdas.length, attributes: { getPosition: { value: pos, size: 2 } } },
+        cellSize: LADO_CELDA_M,
+        coverage: 0.55,
         extruded: true,
-        wireframe: true,
-        getElevation: (m) => m.altura * 3,
-        getFillColor: (m) => (profundidad[m.celda] > 0 ? [255, 90, 110, 200] : [70, 190, 255, 70]),
-        getLineColor: (m) => (profundidad[m.celda] > 0 ? [255, 140, 150, 255] : [120, 230, 255, 200]),
-        material: { ambient: 0.7, diffuse: 0.4 },
-        updateTriggers: {
-          getPolygon: [exag, estado.mostrarTerreno],
-          getFillColor: [claveAgua],
-          getLineColor: [claveAgua],
-        },
+        getElevation: 22,
+        getFillColor: [255, 180, 70, 150],
+        material: { ambient: 0.8, diffuse: 0.4 },
+      }),
+    );
+  }
+  return cacheDefensa.get(clave);
+}
+
+// estado: { exageracion, conFalla, agua, infra, claveAgua, mostrarCalles, mostrarPlazas, mostrarNombres }
+export function crearCapas(modelo, ciudad, estado, alPasar) {
+  capasCiudad ??= crearCapasCiudad(ciudad);
+  const capas = [capasCiudad.aguaReal, capasCiudad.aguaLineas];
+  if (estado.mostrarPlazas) capas.push(capasCiudad.plazas);
+
+  if (estado.mostrarCalles) {
+    const { profundidad } = estado.agua;
+    capas.push(
+      new PathLayer({
+        id: 'calles',
+        data: ciudad.calles,
+        getPath: (d) => d.c,
+        getColor: (d) => (profundidad[d.celda] > 0 ? [255, 90, 120, 230] : COLOR_CALLE[d.n]),
+        getWidth: (d) => ANCHO_CALLE[d.n],
+        widthMinPixels: 1,
+        widthMaxPixels: 6,
+        capRounded: false,
+        updateTriggers: { getColor: [estado.claveAgua] },
       }),
     );
   }
 
-  const zRio = estado.mostrarTerreno ? (cotaAgua - COTA_BASE) * exag + 4 : 6;
+  const datosAgua = datosDelAgua(estado.agua, estado.claveAgua);
   capas.push(
-    new PathLayer({
-      id: 'rio-brillo',
-      data: [RIO],
-      getPath: (p) => p.map(([lon, lat]) => [lon, lat, zRio]),
-      getColor: [60, 200, 255, 50],
-      getWidth: 420,
-      widthMinPixels: 6,
-      updateTriggers: { getPath: [claveAgua, exag, estado.mostrarTerreno] },
+    new GridCellLayer({
+      id: 'agua',
+      data: datosAgua,
+      cellSize: LADO_CELDA_M,
+      extruded: true,
+      elevationScale: estado.exageracion,
+      material: { ambient: 0.55, diffuse: 0.5, shininess: 90, specularColor: [180, 230, 255] },
+      parameters: { depthWriteEnabled: false },
+      pickable: true,
+      onHover: alPasar,
     }),
   );
 
-  const zDefensa = estado.mostrarTerreno ? (CORONAMIENTO - COTA_BASE) * exag + 6 : 12;
-  const anillo = [...DEFENSA, DEFENSA[0]].map(([lon, lat]) => [lon, lat, zDefensa]);
-  capas.push(
-    new PathLayer({
-      id: 'defensa-brillo',
-      data: [anillo],
-      getPath: (p) => p,
-      getColor: [255, 170, 60, 60],
-      getWidth: 120,
-      widthMinPixels: 7,
-      updateTriggers: { getPath: [exag, estado.mostrarTerreno] },
-    }),
-    new PathLayer({
-      id: 'defensa',
-      data: [anillo],
-      getPath: (p) => p,
-      getColor: [255, 190, 90, 255],
-      getWidth: 25,
-      widthMinPixels: 2,
-      updateTriggers: { getPath: [exag, estado.mostrarTerreno] },
-    }),
-  );
-
+  capas.push(capaDefensa(modelo, estado.conFalla));
   if (estado.conFalla) {
     capas.push(
       new ScatterplotLayer({
         id: 'brecha',
-        data: [BRECHA],
-        getPosition: ([lon, lat]) => [lon, lat, zDefensa + 10],
+        data: [modelo.brecha],
+        getPosition: ([lon, lat]) => [lon, lat, 12],
         getRadius: 260,
         radiusMinPixels: 6,
         stroked: true,
-        filled: true,
         getFillColor: [255, 50, 70, 90],
         getLineColor: [255, 80, 90, 255],
         lineWidthMinPixels: 2,
-        updateTriggers: { getPosition: [exag, estado.mostrarTerreno] },
       }),
     );
   }
 
-  const zInfra = (item) => zTerreno(item.celda) + (estado.mostrarManzanas ? 10 : 0);
-  capas.push(
-    new ColumnLayer({
-      id: 'infra-haz',
-      data: estado.infra,
-      getPosition: (item) => [...item.pos, zInfra(item)],
-      diskResolution: 12,
-      radius: 38,
-      extruded: true,
-      getElevation: (item) => (item.estado === 'afectado' ? 900 : 650),
-      getFillColor: (item) => {
-        const c = colorEstadoInfra(item);
-        return [c[0], c[1], c[2], 170];
-      },
-      material: { ambient: 0.9, diffuse: 0.3 },
-      pickable: true,
-      onHover: alPasar,
-      updateTriggers: {
-        getPosition: [exag, estado.mostrarTerreno, estado.mostrarManzanas],
-        getElevation: [claveAgua],
-        getFillColor: [claveAgua],
-      },
-    }),
-    new ScatterplotLayer({
-      id: 'infra-base',
-      data: estado.infra,
-      getPosition: (item) => [...item.pos, zInfra(item) + 1],
-      getRadius: 110,
-      radiusMinPixels: 4,
-      stroked: true,
-      filled: true,
-      getFillColor: (item) => {
-        const c = colorEstadoInfra(item);
-        return [c[0], c[1], c[2], 60];
-      },
-      getLineColor: colorEstadoInfra,
-      lineWidthMinPixels: 1.5,
-      updateTriggers: {
-        getPosition: [exag, estado.mostrarTerreno, estado.mostrarManzanas],
-        getFillColor: [claveAgua],
-        getLineColor: [claveAgua],
-      },
-    }),
-    new TextLayer({
-      id: 'infra-etiqueta',
-      data: estado.infra,
-      getPosition: (item) => [...item.pos, zInfra(item) + (item.estado === 'afectado' ? 930 : 680)],
-      getText: (item) => item.id,
-      getSize: 13,
-      getColor: colorEstadoInfra,
-      fontFamily: 'Consolas, "Courier New", monospace',
-      fontWeight: 700,
-      outlineWidth: 2,
-      outlineColor: [5, 12, 25, 255],
-      fontSettings: { sdf: true },
-      billboard: true,
-      updateTriggers: {
-        getPosition: [exag, estado.mostrarTerreno, estado.mostrarManzanas, claveAgua],
-        getColor: [claveAgua],
-      },
-    }),
-  );
+  // Escuelas y salud como cubos (cajas de 4 lados).
+  // ColumnLayer usa un solo radio por capa: una capa por tipo.
+  for (const tipo of ['escuela', 'salud']) {
+    capas.push(
+      new ColumnLayer({
+        id: `infra-${tipo}`,
+        data: estado.infraPorTipo[tipo],
+        getPosition: (item) => item.pos,
+        diskResolution: 4,
+        angle: 45,
+        radius: MEDIDA_INFRA[tipo].radio,
+        getElevation: MEDIDA_INFRA[tipo].alto,
+        extruded: true,
+        wireframe: true,
+        getFillColor: colorEstadoInfra,
+        getLineColor: [230, 250, 255, 200],
+        material: { ambient: 0.7, diffuse: 0.5 },
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 255, 90],
+        onHover: alPasar,
+        updateTriggers: { getFillColor: [estado.claveInfra] },
+      }),
+    );
+  }
+
+  if (estado.mostrarNombres) {
+    capas.push(
+      new TextLayer({
+        id: 'infra-etiqueta',
+        data: estado.infra.filter((i) => i.tipo === 'salud' || i.estado !== 'normal'),
+        getPosition: (item) => [...item.pos, MEDIDA_INFRA[item.tipo].alto + 25],
+        getText: (item) => item.corto,
+        getSize: 12,
+        getColor: colorEstadoInfra,
+        fontFamily: 'Consolas, "Courier New", monospace',
+        fontWeight: 700,
+        outlineWidth: 2,
+        outlineColor: [5, 12, 25, 255],
+        fontSettings: { sdf: true },
+        characterSet: 'auto',
+        billboard: true,
+        updateTriggers: { getColor: [estado.claveInfra] },
+      }),
+    );
+  }
 
   return capas;
 }
 
 export function textoDeAyuda(info, modelo, estado) {
-  if (!info || !info.object && info.index < 0) return null;
-  if (info.layer?.id === 'infra-haz') {
+  if (!info || !info.picked) return null;
+  if (info.layer?.id.startsWith('infra-')) {
     const item = info.object;
-    const umbral = estado.conFalla ? item.umbral.falla : item.umbral.normal;
-    const umbralTexto = umbral > 30 ? 'no se alcanza' : `${umbral.toFixed(2)} m`;
+    const umbralTexto = item.umbralActual > 30 ? 'no lo alcanza' : `${item.umbralActual.toFixed(2)} m`;
     return `${item.nombre}\n${TIPOS_INFRA[item.tipo].etiqueta} · ${item.dentroDefensa ? 'dentro' : 'fuera'} de la defensa\nSe afecta por río con: ${umbralTexto}\nEstado: ${item.estado}`;
   }
-  const i = typeof info.object === 'number' ? info.object : info.index;
-  if (i == null || i < 0) return null;
-  const p = estado.agua.profundidad[i];
-  const origenes = ['seco', 'río', 'lluvia', 'cauce'];
-  const [lon, lat] = centroDeCelda(i);
-  return `Celda ${i} · ${lat.toFixed(4)}, ${lon.toFixed(4)}\nCota ficticia: ${modelo.cotaTerreno[i].toFixed(2)} m\nAgua: ${p > 0 ? p.toFixed(2) + ' m (' + origenes[estado.agua.origen[i]] + ')' : 'seco'}`;
+  if (info.layer?.id === 'agua') {
+    const i = cacheAgua.datos?.celdas[info.index];
+    if (i == null) return null;
+    const p = estado.agua.profundidad[i];
+    const [lon, lat] = centroDeCelda(i);
+    const origen = ['seco', 'río', 'lluvia', 'cauce'][estado.agua.origen[i]];
+    return `${lat.toFixed(4)}, ${lon.toFixed(4)} · celda de ${TAMANO_CELDA_M} m\nAgua: ${p.toFixed(2)} m (${origen})`;
+  }
+  return null;
 }

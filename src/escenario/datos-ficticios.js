@@ -49,6 +49,21 @@ export const DEFENSA = [
   [-58.218, -26.145],
 ];
 
+// Supuestos para armar el modelo sobre la geografía real de OSM (el río y las lagunas son reales;
+// el ancho, el casco urbano protegido y el lugar de la brecha son FICTICIOS).
+export const GEOGRAFIA = {
+  semiAnchoParaguayM: 230, // el Paraguay frente a Formosa tiene ~450 m de ancho [Probable]
+  semiAnchoRiachoM: 45, // riachos y arroyos: una celda
+  // Casco urbano que encierra la defensa ficticia. El anillo se ajusta a ~350 m del agua.
+  cascoUrbano: [
+    [-58.236, -26.222],
+    [-58.15, -26.222],
+    [-58.15, -26.152],
+    [-58.236, -26.152],
+  ],
+  brechaCerca: [-58.159, -26.186], // la brecha se abre en el tramo del anillo más cercano (costa de la ciudad)
+};
+
 // Punto donde se abre la brecha cuando se activa "falla de la defensa".
 export const BRECHA = [-58.1672, -26.18];
 export const RADIO_BRECHA_M = 260;

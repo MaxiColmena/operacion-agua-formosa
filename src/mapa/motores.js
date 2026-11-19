@@ -9,17 +9,22 @@ import { CENTRO } from '../escenario/datos-ficticios.js';
 const VISTA_INICIAL = {
   longitude: CENTRO[0],
   latitude: CENTRO[1],
-  zoom: 12.4,
-  pitch: 58,
-  bearing: -28,
-  maxPitch: 85,
+  zoom: 13.1,
+  pitch: 55,
+  bearing: -20,
+  maxPitch: 80,
 };
+
+// En pantallas de alta densidad dibujar a resolución completa cuesta mucho; 1,5 alcanza para un boceto.
+const PIXELES = Math.min(window.devicePixelRatio || 1, 1.5);
 
 export function crearMotorSoloDeck(contenedor) {
   let vista = { ...VISTA_INICIAL };
   const deck = new Deck({
     parent: contenedor,
     views: new MapView({ repeat: false }),
+    useDevicePixels: PIXELES,
+    pickingRadius: 4,
     initialViewState: vista,
     controller: { dragRotate: true, touchRotate: true, doubleClickZoom: true, keyboard: true },
     onViewStateChange: ({ viewState }) => {

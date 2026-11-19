@@ -34,6 +34,8 @@
             <span><i style="background:#1e96ff"></i>Río</span>
             <span><i style="background:#3cd2ff"></i>Lluvia</span>
             <span><i style="background:#ffb84a"></i>Defensa</span>
+            <span><i style="background:#50c8ff"></i>Escuela</span>
+            <span><i style="background:#78ffaa"></i>Salud</span>
           </div>
         </section>
         <section class="tarjeta">
@@ -53,7 +55,7 @@
           <button data-girar="30" title="Girar a la derecha">⟳</button>
         </div>
         <div class="lectura" id="lectura"></div>
-        <div class="tip">Arrastrar: mover · Rueda: zoom · Ctrl o clic derecho + arrastrar: rotar e inclinar</div>
+        <div class="tip">Arrastrar: mover · Rueda: zoom · Ctrl o clic derecho + arrastrar: rotar e inclinar · ← →: día</div>
       </div>
 
       <aside class="columna derecha">
@@ -64,13 +66,11 @@
         </details>
 
         <details class="seccion" open>
-          <summary>TIEMPO DEL EVENTO</summary>
+          <summary>DÍA DEL EVENTO</summary>
           <div class="fila-tiempo">
-            <button id="btn-play" class="btn-play" title="Reproducir">▶</button>
-            <input type="range" id="tiempo" min="0" max="100" step="1" value="0" />
-          </div>
-          <div class="fila">
-            <span id="tiempo-texto">Día 0 · 00:00</span>
+            <button id="btn-atras" class="btn-play" title="1 día atrás">◀</button>
+            <button id="btn-play" class="btn-play" title="Reproducir (espacio)">▶</button>
+            <button id="btn-adelante" class="btn-play" title="1 día adelante">▶|</button>
             <select id="velocidad" title="Velocidad">
               <option value="0.5">x0,5</option>
               <option value="1" selected>x1</option>
@@ -78,17 +78,20 @@
               <option value="4">x4</option>
             </select>
           </div>
+          <input type="range" id="tiempo" min="0" max="100" step="1" value="0" class="ancho" />
+          <div class="fila"><span id="tiempo-texto">Día 0</span><span class="nota">← → cambian el día</span></div>
         </details>
 
         <details class="seccion" open>
-          <summary>ESCENARIO MANUAL</summary>
-          <label class="check"><input type="checkbox" id="manual" /> Mover el agua a mano</label>
+          <summary>CUÁNTA AGUA</summary>
           <label>Nivel del río en Puerto Formosa: <b id="nivel-texto"></b>
-            <input type="range" id="nivel" min="2" max="11.5" step="0.05" value="4.8" disabled />
+            <input type="range" id="nivel" min="2" max="11.5" step="0.05" value="4.8" />
           </label>
           <label>Lluvia acumulada: <b id="lluvia-texto"></b>
-            <input type="range" id="lluvia" min="0" max="250" step="5" value="0" disabled />
+            <input type="range" id="lluvia" min="0" max="250" step="5" value="0" />
           </label>
+          <p class="nota" id="modo-agua"></p>
+          <button id="btn-volver" class="btn-texto oculto">Volver a los valores del caso</button>
         </details>
 
         <details class="seccion" open>
@@ -97,19 +100,22 @@
           <p class="nota">Con la defensa sana, el agua del río solo entra al anillo si supera el coronamiento ficticio (10,5 m).</p>
         </details>
 
-        <details class="seccion">
+        <details class="seccion" open>
           <summary>VISTA</summary>
-          <label>Exageración vertical: <b id="exag-texto"></b>
-            <input type="range" id="exageracion" min="1" max="40" step="1" value="18" />
+          <label>Altura visual del agua: <b id="exag-texto"></b>
+            <input type="range" id="exageracion" min="1" max="40" step="1" value="12" />
           </label>
-          <label class="check"><input type="checkbox" id="terreno" /> Relieve ficticio</label>
-          <label class="check"><input type="checkbox" id="manzanas" checked /> Manzanas ficticias</label>
+          <label class="check"><input type="checkbox" id="calles" checked /> Calles (OSM)</label>
+          <label class="check"><input type="checkbox" id="plazas" checked /> Plazas y parques (OSM)</label>
+          <label class="check"><input type="checkbox" id="nombres" checked /> Nombres de salud y afectados</label>
+          <p class="nota">Ciudad: © colaboradores de OpenStreetMap (ODbL), datos del <span id="fecha-osm">…</span>.</p>
         </details>
 
         <details class="seccion">
           <summary>SUPUESTOS Y LÍMITES</summary>
           <ul class="supuestos">
-            <li>Terreno, defensa, lagunas, manzanas e infraestructura son <b>inventados</b>.</li>
+            <li>Calles, plazas, escuelas y salud son <b>reales</b> (OpenStreetMap), pero pueden faltar o estar desactualizados.</li>
+            <li>Terreno, defensa y lagunas son <b>inventados</b>: dónde cae el agua no es real.</li>
             <li>Cero de la escala ficticio: 50,0 m. El real hay que pedirlo al INA.</li>
             <li>Río: el agua llega a toda celda conectada al cauce y por debajo del nivel.</li>
             <li>Lluvia: se llenan los bajos según el exceso sobre el drenaje (45 mm, 20 mm con río ≥ 6,5 m).</li>

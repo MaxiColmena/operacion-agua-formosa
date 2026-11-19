@@ -14,7 +14,9 @@ Este README junta lo investigado hasta ahora. Se actualiza a medida que el equip
 
 Mapa 3D de Formosa Capital que se puede mover, rotar e inclinar, con un **"reloj del agua"**. Funciona como la app *3D Sun-Path*, donde se mueve la hora y cambian las sombras: acá se mueve el tiempo del evento y el agua sube, baja y avanza sobre la ciudad.
 
-> ⚠️ **Todo es ficticio:** terreno, defensa, lagunas, manzanas e infraestructura. Lo único real son los umbrales del INA (alerta 7,80 m y evacuación 8,30 m en Puerto Formosa).
+> ⚠️ **Qué es real y qué no:** las calles, plazas, escuelas y centros de salud son **reales** (OpenStreetMap). El terreno, la defensa, las lagunas y los casos son **ficticios**, así que dónde cae el agua no es real. También son reales los umbrales del INA (alerta 7,80 m y evacuación 8,30 m en Puerto Formosa).
+>
+> Investigación de casos reales (inundaciones, árboles y postes caídos, autos varados, electrocuciones) y propuesta de alerta a REFSA: [docs/casos-y-alerta-refsa.md](docs/casos-y-alerta-refsa.md).
 
 ### Cómo correrlo
 
@@ -25,7 +27,11 @@ npm run dev        # abre http://localhost:5173
 npm test           # tests del cálculo de agua (Vitest)
 ```
 
-**Sin clave de Google** arranca en *modo sin Google*: el mismo agua y el relieve ficticio, sin mapa de fondo.
+**Sin clave de Google** arranca con el mapa de **OpenStreetMap**: calles, plazas, escuelas y salud reales, guardados en `public/datos/formosa-osm.json`. Para actualizar esos datos:
+
+```bash
+node scripts/bajar-osm.mjs   # consulta Overpass por partes; guarda cada parte en data/raw/
+```
 
 **Con Google Maps:**
 1. En Google Cloud, activar **Maps JavaScript API** y crear una **API key**. Restringirla por *HTTP referrer* (por ejemplo `http://localhost:5173/*`).
@@ -44,16 +50,18 @@ Si Google falla (clave mala, sin internet, etc.), la app avisa y pasa sola al mo
 | Control | Qué hace |
 |---|---|
 | **Caso ficticio** | 4 casos: crecida lenta tipo El Niño, tormenta de 140 mm, río alto + tormenta, extremo tipo 1983 |
-| **Tiempo del evento** ▶ | Reproduce el caso: el agua avanza como las sombras en Sun-Path. Velocidad x0,5 a x4 |
-| **Escenario manual** | Mover a mano el nivel del río (2 a 11,5 m) y la lluvia (0 a 250 mm) |
+| **Día del evento** | Elegir el día a mano (◀ ▶, la barra o las flechas ← → del teclado), o ▶ para reproducirlo (espacio). Velocidad x0,5 a x4 |
+| **Cuánta agua** | Mover el nivel del río (2 a 11,5 m) y la lluvia (0 a 250 mm) en cualquier momento. Queda "agua a mano" hasta que se cambia el día o se toca "Volver a los valores del caso" |
 | **Falla de la defensa** | Abre una brecha en el anillo ficticio y muestra qué se afecta antes |
-| **Vista** | Exageración vertical, relieve ficticio, manzanas ficticias |
+| **Vista** | Altura visual del agua, calles, plazas y nombres |
+| Mapa | Calles reales en neón (en rojo si están bajo agua), plazas en verde, **escuelas como cubos chicos** y **salud como cubos grandes** (rojo: afectado, amarillo: en riesgo) |
 | Panel izquierdo | Vista 2D del agua, hidrograma del caso con umbrales INA y resumen (km², infraestructura afectada) |
 | Lista de infraestructura | Ordenada por **a qué nivel del río se afecta** (el "qué se inunda primero" de la sección 2.2) |
 | Mouse | Arrastrar: mover · Rueda: zoom · Ctrl o clic derecho + arrastrar: rotar e inclinar · Pasar el mouse: datos de la celda |
 
 ### Cómo calcula el agua (resumen)
 
+- **Geografía:** el Río Paraguay (franja de ~460 m sobre su línea en OSM) y el Riacho Formosa traen el agua del río. Las lagunas, bañados, arroyos y canales reales son bajos que se llenan con lluvia. La cota del terreno es **ficticia**: sube al alejarse del agua. La defensa es un anillo ficticio a ~350 m del agua alrededor del casco urbano.
 - **Río:** se precalcula para cada celda la **cota mínima que tiene que alcanzar el río para llegar hasta ella** (camino desde el cauce con *priority-flood*). La defensa actúa como barrera. Después, cualquier nivel del río se resuelve al instante.
 - **Lluvia:** se calcula cuánta agua junta cada bajo del terreno. Lo que supera la capacidad del drenaje (45 mm, o 20 mm con el río ≥ 6,5 m porque las bombas no dan abasto) va llenando los bajos.
 - Código: `src/escenario/inundacion.js` (algoritmos, con tests) y `src/escenario/datos-ficticios.js` (todo lo inventado, en un solo lugar para reemplazarlo por datos reales).
@@ -64,17 +72,22 @@ Si Google falla (clave mala, sin internet, etc.), la app avisa y pasa sola al mo
 index.html                 interfaz (paneles estilo Sun-Path)
 src/main.js                estado, controles y reproducción
 src/escenario/             terreno ficticio, casos y cálculo del agua
-src/mapa/capas.js          capas 3D (deck.gl): relieve, agua, manzanas, defensa, infraestructura
+src/mapa/capas.js          capas 3D (deck.gl): calles, plazas, agua (cubos por celda), defensa, escuelas y salud
+src/mapa/ciudad.js         carga la ciudad real de OpenStreetMap
 src/mapa/motores.js        Google Maps vectorial + deck.gl, o deck.gl solo
+scripts/bajar-osm.mjs      descarga y simplifica los datos de OSM
+public/datos/              ciudad real ya procesada (© OpenStreetMap, ODbL)
+docs/casos-y-alerta-refsa.md  casos reales y diseño de la alerta a REFSA
 src/ui/graficos.js         minimapa 2D e hidrograma
 tests/                     tests del cálculo (Vitest)
 ```
 
 ### Probado
 
-- `npm test`: 10 tests en verde.
+- `npm test`: 14 tests en verde (incluye el modelo sobre la geografía real).
 - `npm run build`: compila sin errores.
-- Navegador headless (Chrome): carga, reproducción, controles manuales, falla de la defensa y rotación, sin errores en la consola.
+- Navegador: carga la ciudad real, cambio de día con ◀ ▶, agua a mano, falla de la defensa y reproducción (~50 cuadros por segundo), sin errores en la consola.
+- Las capturas de abajo son de la versión anterior (ciudad ficticia).
 - **Con Google Maps real todavía no se probó:** falta una clave. Se verificó que, si Google no carga, la app pasa al modo sin Google con su aviso.
 
 ![Falla de la defensa con el río a 9,50 m y 150 mm de lluvia](docs/img/prototipo-falla-defensa.png)
