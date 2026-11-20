@@ -10,6 +10,7 @@ import {
 } from './analysis';
 import { WelcomeGuide, guideSeen, markGuideSeen } from './ui/Guide';
 import { TipLayer } from './ui/TipLayer';
+import { fmtStage, stageContext, thresholdState, RISK_MARGIN, type ThresholdState } from './ui/threshold';
 
 const SIM_FACTOR = 2; // celdas de ~60 m en vivo
 /** Coronamiento de la defensa expresado en la escala de Puerto Formosa (m). */
@@ -23,6 +24,7 @@ const CAT_ICON: Record<FacilityCat, string> = {
   hospital: '✚', salud: '+', escuela: '▲', seguridad: '◆', servicios: '⚡', refugio: '⌂', transporte: '✈',
 };
 const TIER_LABEL = ['—', '1º', '2º', '3º'];
+const THR_ROW: Record<ThresholdState, string> = { alcanzado: 'st-afectado', riesgo: 'st-atencion', lejos: '' };
 
 export default function App() {
   const [data, setData] = useState<AppData | null>(null);
@@ -48,6 +50,8 @@ export default function App() {
   const [freeCam, setFreeCam] = useState({ active: false, speed: 1 });
   const [showGuide, setShowGuide] = useState(() => !guideSeen());
   const [showAdvanced, setShowAdvanced] = useState(false);
+  /** Orden de las listas de barrios e infraestructura: por la simulación o por la altura del río a la que se afectan. */
+  const [order, setOrder] = useState<'sim' | 'rio'>('sim');
   const closeGuide = () => { markGuideSeen(); setShowGuide(false); };
   // Los paneles laterales terminan justo arriba del dock, que cambia de alto según el ancho y las capas visibles.
   const appRef = useRef<HTMLDivElement>(null);
@@ -169,11 +173,27 @@ export default function App() {
   const totalSeconds = (scenario.rainHours + 1) * 3600;
   const preset = PRESETS.find((p) => p.id === presetId);
 
+  const hasThr = !!data?.thresholds;
+  const byRiverOrder = hasThr && order === 'rio';
+  /** Umbral de la variante del escenario: con brecha si la defensa falla. */
+  const stageOf = (x: { stageSana: number | null; stageBrecha: number | null }) => (scenario.defenseFails ? x.stageBrecha : x.stageSana);
   const barrioRows = useMemo(() => barrios.map((b, i) => ({ b, l: barLive[i], i }))
-    .sort((a, z) => rank(a.l?.firstAffected, a.b.tier) - rank(z.l?.firstAffected, z.b.tier)), [barrios, barLive]);
+    .sort(byRiverOrder
+      ? (a, z) => stageRank(stageOf(a.b)) - stageRank(stageOf(z.b)) || a.b.name.localeCompare(z.b.name)
+      : (a, z) => rank(a.l?.firstAffected, a.b.tier) - rank(z.l?.firstAffected, z.b.tier)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [barrios, barLive, byRiverOrder, scenario.defenseFails]);
   const facRows = useMemo(() => facilities.map((f, i) => ({ f, l: facLive[i], i }))
     .filter((r) => catFilter === 'todas' || r.f.cat === catFilter)
-    .sort((a, z) => rank(a.l?.firstWet, a.f.tier) - rank(z.l?.firstWet, z.f.tier)), [facilities, facLive, catFilter]);
+    .sort(byRiverOrder
+      ? (a, z) => stageRank(stageOf(a.f)) - stageRank(stageOf(z.f)) || a.f.name.localeCompare(z.f.name)
+      : (a, z) => rank(a.l?.firstWet, a.f.tier) - rank(z.l?.firstWet, z.f.tier)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [facilities, facLive, catFilter, byRiverOrder, scenario.defenseFails]);
+  const thrMeta = data?.thresholds?.meta;
+  const crestStage = thrMeta ? +(thrMeta.defenseCrest - thrMeta.gaugeZero).toFixed(2) : DEFENSE_CREST_STAGE;
+  /** Clase de fila en el orden por altura del río: rojo si ya se alcanzó, ámbar si está a menos de 60 cm. */
+  const thrRowClass = (st: number | null) => THR_ROW[thresholdState(st, scenario.riverStage)];
   const affectedCounts = useMemo(() => {
     const c = { afectado: 0, atencion: 0 };
     facLive.forEach((f) => { if (f.status !== 'seco') c[f.status]++; });
@@ -379,6 +399,26 @@ export default function App() {
             <div className="c4"><b className="mono">{(streets?.dirtCurbKm ?? 0).toFixed(1)}</b><span>km de calles de tierra sobre el cordón</span></div>
             <p className="list-help">Calles con más kilómetros de agua sobre el cordón. Profundidad estimada: en zona urbana se supone que el agua de la manzana se junta en la calzada.</p>
           </div>
+        ) : (<>
+        {hasThr && (
+          <div className="order-row">
+            <span>Orden:</span>
+            <div className="seg">
+              <button className={order === 'sim' ? 'on' : ''} aria-pressed={order === 'sim'} onClick={() => setOrder('sim')}
+                data-tip="Ordena por cuándo les llega el agua en la simulación en curso">simulación</button>
+              <button className={order === 'rio' ? 'on' : ''} aria-pressed={order === 'rio'} onClick={() => setOrder('rio')}
+                data-tip="Ordena por la altura del río en Puerto Formosa a la que empieza a llegarles agua del río (estimación estática, sin lluvia)">altura del río</button>
+            </div>
+          </div>
+        )}
+        {byRiverOrder ? (
+          <p className="list-help">
+            A la derecha, la <b>altura del río en Puerto Formosa</b> a la que empieza a llegar agua del río
+            {scenario.defenseFails ? ' con la defensa rota (como en el escenario)' : ' con la defensa sana'}.{' '}
+            <span className="thr-key bad">Rojo</span>: ya alcanzada con el río a {fmtStage(scenario.riverStage)} ·{' '}
+            <span className="thr-key warn">ámbar</span>: faltan menos de {RISK_MARGIN * 100} cm.{' '}
+            Es una <b>estimación estática</b> a partir del terreno y la defensa, no un pronóstico: no incluye lluvia ni tiempos.
+          </p>
         ) : (
         <p className="list-help">
           Arriba, lo primero que toca el agua en esta simulación (a la derecha, cuándo). La etiqueta de color indica desde qué escenario se afecta:{' '}
@@ -386,6 +426,7 @@ export default function App() {
           <span className="tier t3 inline">3º</span> solo en el extremo · <span className="tier t0 inline">—</span> en ninguno.
         </p>
         )}
+        </>)}
 
         {tab === 'infra' && (
           <div className="filters">
@@ -398,17 +439,21 @@ export default function App() {
 
         <ol className="list">
           {tab === 'barrios' && barrioRows.map(({ b, l, i }) => (
-            <li key={i} className={`st-${l?.status ?? 'seco'}`} onClick={() => sceneRef.current?.focusLonLat(b.lon, b.lat)}>
+            <li key={i} className={byRiverOrder ? thrRowClass(stageOf(b)) : `st-${l?.status ?? 'seco'}`} onClick={() => sceneRef.current?.focusLonLat(b.lon, b.lat)}>
               <TierBadge t={b.tier} />
-              <div className="li-main"><b>{b.name}</b><span>{l ? `${Math.round(l.share * 100)} % con agua` : ''}</span></div>
-              <span className="mono time">{fmtTime(l?.firstAffected ?? -1)}</span>
+              <div className="li-main"><b>{b.name}</b><span>{l ? `${Math.round(l.share * 100)} % con agua` : ''}{byRiverOrder && b.protectedByDefense && !scenario.defenseFails ? ' · tras la defensa' : ''}</span></div>
+              {byRiverOrder
+                ? <span className="mono time" data-tip={stageTip(stageOf(b), 'el 5 % del barrio')}>{fmtStage(stageOf(b))}</span>
+                : <span className="mono time">{fmtTime(l?.firstAffected ?? -1)}</span>}
             </li>
           ))}
           {tab === 'infra' && facRows.map(({ f, l, i }) => (
-            <li key={f.id} className={`st-${l?.status ?? 'seco'} ${selected === i ? 'sel' : ''}`} onClick={() => { setSelected(i); sceneRef.current?.focusFacility(i); }}>
+            <li key={f.id} className={`${byRiverOrder ? thrRowClass(stageOf(f)) : `st-${l?.status ?? 'seco'}`} ${selected === i ? 'sel' : ''}`} onClick={() => { setSelected(i); sceneRef.current?.focusFacility(i); }}>
               <TierBadge t={f.tier} />
-              <div className="li-main"><b><span className="icon">{CAT_ICON[f.cat]}</span>{f.name}</b><span>{CAT_LABEL[f.cat]}{l && l.status !== 'seco' ? ` · ${(l.depth * 100).toFixed(0)} cm` : ''}</span></div>
-              <span className="mono time">{fmtTime(l?.firstWet ?? -1)}</span>
+              <div className="li-main"><b><span className="icon">{CAT_ICON[f.cat]}</span>{f.name}</b><span>{CAT_LABEL[f.cat]}{l && l.status !== 'seco' ? ` · ${(l.depth * 100).toFixed(0)} cm` : ''}{byRiverOrder && f.protectedByDefense && !scenario.defenseFails ? ' · tras la defensa' : ''}</span></div>
+              {byRiverOrder
+                ? <span className="mono time" data-tip={stageTip(stageOf(f), 'esta instalación')}>{fmtStage(stageOf(f))}</span>
+                : <span className="mono time">{fmtTime(l?.firstWet ?? -1)}</span>}
             </li>
           ))}
           {tab === 'calles' && streets?.top.map((t) => (
@@ -430,7 +475,8 @@ export default function App() {
         <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
           <small>{CAT_LABEL[facilities[hover.i].cat]}</small>
           <b>{facilities[hover.i].name}</b>
-          <span>{statusText(facLive[hover.i])}{facilities[hover.i].tier ? ` · nivel ${TIER_LABEL[facilities[hover.i].tier]}` : ''}</span>
+          <span>{statusText(facLive[hover.i])}{facilities[hover.i].tier ? ` · nivel ${TIER_LABEL[facilities[hover.i].tier]}` : ''}
+            {hasThr ? (stageOf(facilities[hover.i]) == null ? ' · el río no llega' : ` · río a ${fmtStage(stageOf(facilities[hover.i]))}`) : ''}</span>
         </div>
       )}
 
@@ -445,6 +491,7 @@ export default function App() {
             <dt>Primer contacto con agua</dt><dd className="mono">{fmtTime(selLive?.firstWet ?? -1)}{selLive?.byRiver ? ' · por el río' : ''}</dd>
             <dt>Nivel de referencia</dt><dd>{sel.tier ? `${TIER_LABEL[sel.tier]} (${LEVELS[sel.tier - 1].label})${sel.tierByRiver ? ' · por el río' : ''}` : 'No se afecta en los 3 escenarios'}</dd>
           </dl>
+          {hasThr && <ThresholdBlock f={sel} crest={crestStage} river={scenario.riverStage} breach={scenario.defenseFails} />}
           <p className="hint">Zona a evaluar, no veredicto: el MDE tiene ~2 m de error vertical. Fuente: OpenStreetMap.</p>
         </div>
       )}
@@ -517,6 +564,45 @@ function rank(t: number | undefined, tier: Tier) {
   const live = t != null && t >= 0 ? t : 1e9;
   return live + (tier ? tier : 9) * 1e-3 + (live === 1e9 ? (tier || 9) * 1e7 : 0);
 }
+/** Orden por umbral: los que el río no alcanza van al final. */
+function stageRank(s: number | null) { return s == null ? 1e9 : s; }
+function stageTip(s: number | null, what: string) {
+  return s == null
+    ? `El río no llega a ${what} aunque suba a 20 m: solo puede afectarse por lluvia.`
+    : `Con el río a ${fmtStage(s)} en Puerto Formosa empieza a llegarle agua del río a ${what}. Estimación estática, sin lluvia.`;
+}
+
+/** Ficha: a qué altura del río se afecta la instalación, con defensa sana y con rotura. */
+function ThresholdBlock({ f, crest, river, breach }: { f: FacilityInfo; crest: number; river: number; breach: boolean }) {
+  const line = (s: number | null, variant: 'sana' | 'brecha') => {
+    const active = breach === (variant === 'brecha');
+    const st = thresholdState(s, river);
+    const ctx = s == null ? 'el río no llega aunque suba a 20 m'
+      : variant === 'sana' && f.protectedByDefense ? `protegida por la defensa hasta su coronamiento (≈${fmtStage(crest)})`
+      : stageContext(s, crest);
+    return (
+      <div className={`thr-line ${active ? 'active' : ''} thr-${st}`}
+        data-tip={active ? 'Variante del escenario actual (opción «La defensa falla», en las opciones avanzadas)' : 'Otra variante: cambiala con «La defensa falla», en las opciones avanzadas'}>
+        <span>{variant === 'sana' ? 'Se afecta con el río a' : 'Con rotura de la defensa:'} <b className="mono">{fmtStage(s)}</b>
+          {active && st === 'alcanzado' ? <em> · ya alcanzada</em> : active && st === 'riesgo' ? <em> · faltan menos de {RISK_MARGIN * 100} cm</em> : null}</span>
+        <small>{ctx}</small>
+      </div>
+    );
+  };
+  return (
+    <div className="thr">
+      <div className="thr-h">
+        <span>Umbral de exposición al río</span>
+        <span className="tag tag-est" data-tip="Estimación estática a partir del terreno y la defensa: no es un pronóstico y no incluye lluvia, desagües ni tiempos de llegada.">ESTIMADO</span>
+      </div>
+      {f.stageSana == null && f.stageBrecha == null
+        ? <p className="thr-none">El río no llega aunque suba a 20 m: solo puede afectarse por lluvia.</p>
+        : <>{line(f.stageSana, 'sana')}{line(f.stageBrecha, 'brecha')}</>}
+      <p className="thr-foot">Altura en la escala de Puerto Formosa a la que le empieza a llegar agua del río (entorno de ±30 m). Solo río, sin lluvia.</p>
+    </div>
+  );
+}
+
 function fmtHours(h: number) {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
   return hh ? `${hh} h${mm ? ` ${mm} min` : ''}` : `${mm} min`;
@@ -612,6 +698,9 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
             <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>No hay datos públicos de la red pluvial. Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
             <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
             <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
+            {data?.thresholds && (
+              <tr><td>Umbral de exposición al río</td><td className="mono">estimado</td><td>Para cada celda de ~30 m, la altura mínima del río en Puerto Formosa a la que el agua del río llega por superficie («bañadera conectada»: priority-flood desde el río sobre el terreno), calculada con la <b>defensa sana</b> y <b>con la brecha</b> de ~200 m. Una instalación toma el valor más bajo de su entorno (±30 m); un barrio, la altura a la que se expone el 5 % de su superficie. Se evalúa hasta 20 m de escala. <b>No incluye lluvia, desagües, filtraciones ni tiempos de llegada</b>: indica desde qué altura del río conviene mirar cada lugar, no cuándo ni si va a pasar.</td></tr>
+            )}
             <tr><td>Umbral de afectación</td><td className="mono">{ASSUMPTIONS.wetThreshold * 100} cm</td><td>Agua que dificulta el tránsito y entra a veredas.</td></tr>
           </tbody>
         </table>

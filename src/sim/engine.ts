@@ -157,23 +157,7 @@ export class FloodSim {
    * traza puede tener 1–2 m de relleno que en una rotura real se lava.
    */
   private buildEffectiveTerrain() {
-    const { z, width: w, height: h, cellX, cellY } = this.grid;
-    const { defense, breach } = this.masks;
-    const crest = this.assumptions.defenseCrest;
-    const fails = this.scenario.defenseFails;
-    const r = Math.max(1, Math.round(60 / Math.min(cellX, cellY)));
-    for (let i = 0; i < this.n; i++) {
-      if (!defense[i]) { this.zEff[i] = z[i]; continue; }
-      if (!(fails && breach[i])) { this.zEff[i] = Math.max(z[i], crest); continue; }
-      const x = i % w, y = (i / w) | 0;
-      let floor = z[i];
-      for (let yy = Math.max(0, y - r); yy <= Math.min(h - 1, y + r); yy++)
-        for (let xx = Math.max(0, x - r); xx <= Math.min(w - 1, x + r); xx++) {
-          const j = yy * w + xx;
-          if (!defense[j] && z[j] < floor) floor = z[j];
-        }
-      this.zEff[i] = floor;
-    }
+    effectiveTerrain(this.grid, this.masks, this.assumptions.defenseCrest, this.scenario.defenseFails, this.zEff);
   }
 
   get terrain() {
@@ -334,6 +318,38 @@ export class FloodSim {
     for (let i = 0; i < this.n; i++) if (!river[i] && !water[i] && this.d[i] >= thr) c++;
     return (c * this.grid.cellX * this.grid.cellY) / 1e6;
   }
+}
+
+/**
+ * Terreno efectivo (función pura, la usa FloodSim y scripts/build-thresholds.ts): el terreno con la
+ * defensa elevada a `crest`. Con `defenseFails`, solo las celdas de la brecha pierden el coronamiento y
+ * además se erosionan hasta el pie del terraplén (la cota más baja del terreno natural a ~60 m a los
+ * costados): en el MDE la propia traza puede tener 1–2 m de relleno que en una rotura real se lava.
+ */
+export function effectiveTerrain(
+  grid: Grid,
+  masks: Pick<Masks, 'defense' | 'breach'>,
+  crest: number,
+  defenseFails: boolean,
+  out: Float32Array = new Float32Array(grid.width * grid.height),
+): Float32Array {
+  const { z, width: w, height: h, cellX, cellY } = grid;
+  const { defense, breach } = masks;
+  const n = w * h;
+  const r = Math.max(1, Math.round(60 / Math.min(cellX, cellY)));
+  for (let i = 0; i < n; i++) {
+    if (!defense[i]) { out[i] = z[i]; continue; }
+    if (!(defenseFails && breach[i])) { out[i] = Math.max(z[i], crest); continue; }
+    const x = i % w, y = (i / w) | 0;
+    let floor = z[i];
+    for (let yy = Math.max(0, y - r); yy <= Math.min(h - 1, y + r); yy++)
+      for (let xx = Math.max(0, x - r); xx <= Math.min(w - 1, x + r); xx++) {
+        const j = yy * w + xx;
+        if (!defense[j] && z[j] < floor) floor = z[j];
+      }
+    out[i] = floor;
+  }
+  return out;
 }
 
 /** Bits de la máscara combinada (public/data/masks.bin). MASK_BREACH: tramo de la defensa que se rompe. */

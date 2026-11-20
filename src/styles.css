@@ -190,6 +190,28 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 .card dd.st-atencion { color: var(--warn); }
 .x { position: absolute; top: 8px; right: 10px; background: none; border: 0; font-size: 20px; color: var(--muted); }
 
+/* ---------- umbral de exposición al río ---------- */
+.order-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+.order-row .seg button { padding: 3px 10px; font-size: 11px; }
+.thr-key { font-weight: 600; }
+.thr-key.bad { color: var(--bad); }
+.thr-key.warn { color: var(--warn); }
+.thr { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; }
+.thr-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--muted); font-size: 11px; letter-spacing: 0.04em; }
+.card .thr-h .tag { padding: 2px 8px; font-size: 10px; }
+.tag-est { color: var(--warn); border-color: rgba(227, 176, 74, 0.4); }
+.thr-line { display: flex; flex-direction: column; padding: 5px 8px; margin-bottom: 4px; border-left: 3px solid var(--line); border-radius: 4px; opacity: 0.7; }
+.thr-line.active { opacity: 1; background: rgba(111, 191, 212, 0.05); }
+.thr-line.active.thr-alcanzado { border-left-color: var(--bad); }
+.thr-line.active.thr-riesgo { border-left-color: var(--warn); }
+.thr-line b { color: var(--text); }
+.thr-line em { font-style: normal; font-size: 11px; }
+.thr-alcanzado em { color: var(--bad); }
+.thr-riesgo em { color: var(--warn); }
+.card .thr-line small { color: var(--muted); font-size: 11px; text-transform: none; letter-spacing: 0; }
+.thr-none { margin: 4px 0; color: var(--text); }
+.thr-foot { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+
 /* ---------- dock inferior ---------- */
 .dock {
   position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; z-index: 2;

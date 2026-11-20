@@ -1,10 +1,10 @@
 // Cruce de la simulación con la infraestructura y los barrios: qué se afecta, cuándo y en qué nivel.
 import type { AppData, Facility } from './data/load';
-import { lonLatToCell } from './data/load';
+import { lonLatToCell, THRESHOLD_NONE } from './data/load';
 import { MASK_RIVER, MASK_WATER } from './sim/engine';
 import type { FacilityStatus } from './scene/MapScene';
 import { streetDepth } from './scene/MapScene';
-import { STREET } from './sim/scenarios';
+import { ASSUMPTIONS, STREET } from './sim/scenarios';
 
 export interface SimGridInfo {
   width: number;
@@ -20,6 +20,12 @@ export interface FacilityInfo extends Facility {
   cells: number[]; // celdas de la grilla de simulación alrededor (radio ~60 m)
   tier: Tier;
   tierByRiver: boolean;
+  /** Altura del río en Puerto Formosa (m de escala) a la que le llega agua del río, defensa sana. null = no llega hasta capStage. */
+  stageSana: number | null;
+  /** Ídem con la rotura de la defensa. */
+  stageBrecha: number | null;
+  /** Está dentro del anillo: con la defensa sana no le llega hasta el coronamiento y con la brecha sí. */
+  protectedByDefense: boolean;
 }
 
 export interface BarrioInfo {
@@ -29,6 +35,10 @@ export interface BarrioInfo {
   cells: number[];
   tier: Tier;
   tierShare: [number, number, number];
+  /** Altura del río a la que ≥ 5 % del barrio recibe agua del río (defensa sana / con brecha). null = no llega. */
+  stageSana: number | null;
+  stageBrecha: number | null;
+  protectedByDefense: boolean;
 }
 
 export interface FacilityLive {
@@ -61,8 +71,36 @@ function tierAt(data: AppData, cx: number, cy: number, r: number): { tier: Tier;
   return { tier: best, river };
 }
 
+/** Coronamiento de la defensa en la escala de Puerto Formosa (m). */
+export function defenseCrestStage(data: AppData): number {
+  const m = data.thresholds?.meta;
+  return m ? m.defenseCrest - m.gaugeZero : ASSUMPTIONS.defenseCrest - ASSUMPTIONS.gaugeZero;
+}
+
+const toStage = (cm: number) => (cm >= THRESHOLD_NONE ? null : cm / 100);
+
+/** Umbral mínimo (cm) en una ventana de la grilla completa; ignora celdas del río (valor 0). */
+function minThreshold(arr: Uint16Array, data: AppData, x0: number, y0: number, x1: number, y1: number): number {
+  const { width: w, height: h } = data.meta;
+  let best = THRESHOLD_NONE;
+  for (let y = Math.max(0, y0); y <= Math.min(h - 1, y1); y++)
+    for (let x = Math.max(0, x0); x <= Math.min(w - 1, x1); x++) {
+      const i = y * w + x;
+      if (data.mask[i] & MASK_RIVER) continue;
+      const v = arr[i];
+      if (v > 0 && v < best) best = v;
+    }
+  return best;
+}
+
+function isProtected(sana: number | null, brecha: number | null, crest: number) {
+  const tol = 0.05;
+  return (sana == null || sana >= crest - tol) && brecha != null && brecha < crest - tol;
+}
+
 export function prepareFacilities(data: AppData, sim: SimGridInfo): FacilityInfo[] {
   if (!data.osm) return [];
+  const crest = defenseCrestStage(data);
   return data.osm.facilities.map((f) => {
     const [cx, cy] = lonLatToCell(data.meta, f.lon, f.lat);
     const sx = Math.floor(cx / sim.factor), sy = Math.floor(cy / sim.factor);
@@ -73,7 +111,13 @@ export function prepareFacilities(data: AppData, sim: SimGridInfo): FacilityInfo
         if (x >= 0 && y >= 0 && x < sim.width && y < sim.height) cells.push(y * sim.width + x);
       }
     const t = tierAt(data, cx, cy, 1);
-    return { ...f, cells, tier: t.tier, tierByRiver: t.river };
+    let stageSana: number | null = null, stageBrecha: number | null = null;
+    if (data.thresholds) {
+      const x = Math.floor(cx), y = Math.floor(cy);
+      stageSana = toStage(minThreshold(data.thresholds.sana, data, x - 1, y - 1, x + 1, y + 1));
+      stageBrecha = toStage(minThreshold(data.thresholds.brecha, data, x - 1, y - 1, x + 1, y + 1));
+    }
+    return { ...f, cells, tier: t.tier, tierByRiver: t.river, stageSana, stageBrecha, protectedByDefense: isProtected(stageSana, stageBrecha, crest) };
   });
 }
 
@@ -97,6 +141,16 @@ export function prepareBarrios(data: AppData, sim: SimGridInfo): BarrioInfo[] {
       }
       if (best >= 0) pts[best].cells.push(i);
     }
+  const crest = defenseCrestStage(data);
+  /** Altura a la que ≥ AFFECTED_SHARE de las celdas del barrio reciben agua del río. */
+  const barrioStage = (arr: Uint16Array, cells: number[]) => {
+    const f = sim.factor;
+    const st = cells.map((i) => {
+      const x = (i % sim.width) * f, y = Math.floor(i / sim.width) * f;
+      return minThreshold(arr, data, x, y, x + f - 1, y + f - 1);
+    }).sort((a, z) => a - z);
+    return toStage(st[Math.max(0, Math.ceil(cells.length * AFFECTED_SHARE) - 1)]);
+  };
   return pts
     .filter((p) => p.cells.length > 10)
     .map((p) => {
@@ -116,7 +170,12 @@ export function prepareBarrios(data: AppData, sim: SimGridInfo): BarrioInfo[] {
       }
       let tier: Tier = 0, acc = 0;
       for (let k = 0; k < 3; k++) { acc += share[k]; if (!tier && acc >= AFFECTED_SHARE) tier = (k + 1) as Tier; }
-      return { name: p.name, lon: p.lon, lat: p.lat, cells: p.cells, tier, tierShare: share };
+      const stageSana = data.thresholds ? barrioStage(data.thresholds.sana, p.cells) : null;
+      const stageBrecha = data.thresholds ? barrioStage(data.thresholds.brecha, p.cells) : null;
+      return {
+        name: p.name, lon: p.lon, lat: p.lat, cells: p.cells, tier, tierShare: share,
+        stageSana, stageBrecha, protectedByDefense: isProtected(stageSana, stageBrecha, crest),
+      };
     });
 }
 

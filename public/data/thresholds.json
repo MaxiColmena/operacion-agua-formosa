@@ -1,0 +1,13 @@
+{
+  "generated": "2026-11-20T12:31:31.802Z",
+  "gaugeZero": 47.3,
+  "defenseCrest": 59,
+  "wetThreshold": 0.15,
+  "capStage": 20,
+  "variants": [
+    "sana",
+    "brecha"
+  ],
+  "method": "Bañadera conectada estática solo del río (sin lluvia ni tiempo): cota de desborde minimax 4-conexa desde el río sobre el terreno efectivo de FloodSim; umbral = max(desborde, terreno + umbral de mojado) − cero de escala.",
+  "units": "cm de escala (Puerto Formosa)"
+}
