@@ -1,0 +1,43 @@
+{
+  "name": "operacion-agua-formosa",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "data:dem": "tsx scripts/build-terrain.ts",
+    "data:osm": "tsx scripts/fetch-osm.ts",
+    "data:buildings": "tsx scripts/build-buildings.ts",
+    "data:masks": "tsx scripts/build-masks.ts",
+    "data:zones": "tsx scripts/build-zones.ts",
+    "data:escuelas": "node scripts/fetch-escuelas.mjs",
+    "data:censo": "node scripts/build-censo.mjs",
+    "data:preview": "tsx scripts/preview-dem.ts",
+    "data": "npm run data:dem && npm run data:osm && npm run data:buildings && npm run data:masks && npm run data:zones"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "geotiff": "^3.0.5",
+    "hyparquet": "^1.33.1",
+    "hyparquet-compressors": "^1.1.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

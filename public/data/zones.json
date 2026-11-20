@@ -1,0 +1,42 @@
+{
+  "generated": "2026-11-20T02:31:24.770Z",
+  "resolution": "30 m",
+  "threshold": 0.15,
+  "levels": [
+    {
+      "id": "n1",
+      "short": "Nivel 1",
+      "label": "Lluvia fuerte",
+      "why": "40 mm en 1 h con el río como hoy (4,70 m, INA 19/11/2026). Tormenta de verano frecuente."
+    },
+    {
+      "id": "n2",
+      "short": "Nivel 2",
+      "label": "Temporal severo",
+      "why": "105 mm en 1,5 h (crónicas de 70 mm en 1 h) con el río en alerta (7,80 m): el desagüe por gravedad se corta."
+    },
+    {
+      "id": "n3",
+      "short": "Nivel 3",
+      "label": "Extremo",
+      "why": "180 mm en 2 h (acumulado de marzo de 2021 concentrado) con el río en evacuación (8,30 m)."
+    }
+  ],
+  "stats": [
+    {
+      "id": "n1",
+      "km2": 3.83,
+      "seconds": 37
+    },
+    {
+      "id": "n2",
+      "km2": 71.53,
+      "seconds": 60
+    },
+    {
+      "id": "n3",
+      "km2": 91.23,
+      "seconds": 81
+    }
+  ]
+}
