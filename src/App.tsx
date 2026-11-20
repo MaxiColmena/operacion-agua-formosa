@@ -8,8 +8,12 @@ import {
   evalBarrios, evalFacilities, evalStreets, fmtTime, prepareBarrios, prepareFacilities, prepareStreets,
   type BarrioInfo, type BarrioLive, type FacilityInfo, type FacilityLive, type StreetLive, type StreetSamples, type Tier,
 } from './analysis';
+import { WelcomeGuide, guideSeen, markGuideSeen } from './ui/Guide';
+import { TipLayer } from './ui/TipLayer';
 
 const SIM_FACTOR = 2; // celdas de ~60 m en vivo
+/** Coronamiento de la defensa expresado en la escala de Puerto Formosa (m). */
+const DEFENSE_CREST_STAGE = +(ASSUMPTIONS.defenseCrest - ASSUMPTIONS.gaugeZero).toFixed(2);
 
 const CAT_LABEL: Record<FacilityCat, string> = {
   hospital: 'Hospital', salud: 'Salud', escuela: 'Escuela', seguridad: 'Bomberos / Policía',
@@ -42,6 +46,19 @@ export default function App() {
   const [bld, setBld] = useState({ wet: 0, near: 0 });
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   const [freeCam, setFreeCam] = useState({ active: false, speed: 1 });
+  const [showGuide, setShowGuide] = useState(() => !guideSeen());
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const closeGuide = () => { markGuideSeen(); setShowGuide(false); };
+  // Los paneles laterales terminan justo arriba del dock, que cambia de alto según el ancho y las capas visibles.
+  const appRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const dock = dockRef.current, app = appRef.current;
+    if (!dock || !app) return;
+    const ro = new ResizeObserver(() => app.style.setProperty('--dock-h', `${dock.offsetHeight}px`));
+    ro.observe(dock);
+    return () => ro.disconnect();
+  }, []);
 
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -175,8 +192,19 @@ export default function App() {
   const sel = selected != null ? facilities[selected] : null;
   const selLive = selected != null ? facLive[selected] : null;
 
+  // Línea de estado en lenguaje simple: qué está pasando y qué hacer ahora.
+  const simT = stats?.time ?? 0;
+  const clock = `${fmtClock(simT)} de ${fmtClock(totalSeconds)}`;
+  const phase: { cls: string; text: string } =
+    !data || !stats ? { cls: 'idle', text: 'Cargando el modelo…' }
+    : stats.finished ? { cls: 'done', text: 'Terminó: mirá la lista de la derecha para ver qué se afectó primero.' }
+    : stats.running && raining ? { cls: 'rain', text: `Lloviendo… ${clock}` }
+    : stats.running ? { cls: 'drain', text: `Ya no llueve: el agua sigue escurriendo… ${clock}` }
+    : simT > 0 ?{ cls: 'pause', text: `En pausa · ${clock}. Tocá «Seguir» para continuar.` }
+    : { cls: 'idle', text: 'Listo para simular: tocá «Hacer llover».' };
+
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
       <div ref={mountRef} className="viewport" />
       {!data && <div className="loading"><div className="spinner" />Cargando terreno de Formosa…</div>}
 
@@ -189,105 +217,159 @@ export default function App() {
           </div>
         </div>
         <div className="sources">
-          <span className="tag tag-obs" title={RIVER_REF.observed.source}>
+          <button className="tag tag-help" onClick={() => setShowGuide(true)} data-tip="Guía rápida: qué es este simulador y cómo usarlo en 4 pasos">
+            ? ¿Cómo se usa?
+          </button>
+          <span className="tag tag-obs" data-tip={`Altura real del río Paraguay medida en Puerto Formosa. ${RIVER_REF.observed.source}`}>
             OBSERVADO · río {RIVER_REF.observed.stage.toFixed(2)} m · {RIVER_REF.observed.date}
           </span>
-          <a className="tag tag-ina" href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer">PREVISIÓN INA · consultar ↗</a>
-          <span className="tag tag-user">ESCENARIO DEL USUARIO · hipotético</span>
+          <a className="tag tag-ina" href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer"
+            data-tip="Abre el sitio del INA (pronóstico oficial del río) en otra pestaña. No se carga automáticamente aquí.">PREVISIÓN INA · consultar ↗</a>
+          <span className="tag tag-user" data-tip="Lo que ves en el mapa es un escenario que elegís vos: hipotético, no un pronóstico.">ESCENARIO DEL USUARIO · hipotético</span>
         </div>
       </header>
 
       <aside className={`panel left ${collapsed.left ? 'collapsed' : ''}`}>
-        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, left: !c.left }))} title="Mostrar u ocultar">{collapsed.left ? '›' : '‹'}</button>
+        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, left: !c.left }))}
+          data-tip={collapsed.left ? 'Mostrar el panel del escenario' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel del escenario">{collapsed.left ? '›' : '‹'}</button>
         <h2>Escenario</h2>
-        <div className="presets">
-          {PRESETS.map((p) => (
-            <button key={p.id} className={`preset ${presetId === p.id ? 'on' : ''} lvl-${p.id}`} onClick={() => applyPreset(p.id)}>
-              <b>{p.short}</b><span>{p.label}</span>
-            </button>
-          ))}
-        </div>
-        {preset && <p className="why">{preset.why}</p>}
 
-        <section>
-          <label className="row"><span>Lluvia</span><b className="mono">{scenario.rainMmH} mm/h</b></label>
-          <input type="range" min={0} max={200} step={5} value={scenario.rainMmH} onChange={(e) => update({ rainMmH: +e.target.value })} />
-          <div className="permin">
-            <input
-              type="number" min={0} max={3.33} step={0.05} value={+rainMmMin.toFixed(2)}
-              onChange={(e) => update({ rainMmH: Math.max(0, Math.min(200, Math.round(+e.target.value * 60))) })}
-            />
-            <span>mm por minuto = litros por m² por minuto</span>
-          </div>
-          <label className="row"><span>Duración</span><b className="mono">{fmtHours(scenario.rainHours)}</b></label>
-          <input type="range" min={0.25} max={6} step={0.25} value={scenario.rainHours} onChange={(e) => update({ rainHours: +e.target.value })} />
-          <div className="hint mono">Total: {(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm ({(scenario.rainMmH * scenario.rainHours).toFixed(0)} L/m²)</div>
-        </section>
-
-        <section>
-          <label className="row"><span>Río Paraguay · Puerto Formosa</span><b className={`mono river-${riverCat}`}>{scenario.riverStage.toFixed(2)} m</b></label>
-          <input type="range" min={1.5} max={11.5} step={0.05} value={scenario.riverStage} onChange={(e) => update({ riverStage: +e.target.value })} />
-          <div className="scale">
-            {[
-              { v: RIVER_REF.observed.stage, t: 'hoy' },
-              { v: RIVER_REF.alert, t: 'alerta' },
-              { v: RIVER_REF.evacuation, t: 'evac.' },
-              { v: RIVER_REF.record1983, t: '1983' },
-            ].map((m) => (
-              <button key={m.t} style={{ left: `${((m.v - 1.5) / 10) * 100}%` }} onClick={() => update({ riverStage: m.v })} title={`${m.v} m`}>
-                <i />{m.t}
+        <div className="step">
+          <h3 className="step-h"><span className="step-n">1</span>Elegí un escenario</h3>
+          <p className="step-help">Cada botón carga una combinación típica de lluvia y altura del río.</p>
+          <div className="presets">
+            {PRESETS.map((p) => (
+              <button key={p.id} className={`preset ${presetId === p.id ? 'on' : ''} lvl-${p.id}`} onClick={() => applyPreset(p.id)}
+                data-tip={`${p.label}: ${p.why}`} aria-pressed={presetId === p.id}>
+                <b>{p.short}</b><span>{p.label}</span>
               </button>
             ))}
           </div>
-          <div className="hint">Cota supuesta del agua: {(ASSUMPTIONS.gaugeZero + scenario.riverStage).toFixed(1)} m s. n. m. Cambiar el río reinicia la simulación.</div>
-        </section>
-
-        <section>
-          <label className="row"><span>Desagüe + infiltración</span><b className="mono">{scenario.drainMmH} mm/h</b></label>
-          <input type="range" min={0} max={40} step={1} value={scenario.drainMmH} onChange={(e) => update({ drainMmH: +e.target.value })} />
-          {scenario.riverStage >= ASSUMPTIONS.alertStage && (
-            <div className="hint warn">Río en alerta o más: se supone que el desagüe por gravedad se corta y solo queda el bombeo ({Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} %).</div>
-          )}
-          <label className="check">
-            <input type="checkbox" checked={scenario.defenseFails} onChange={(e) => update({ defenseFails: e.target.checked })} />
-            Falla de la línea de defensa
-          </label>
-        </section>
-
-        <div className="controls">
-          {stats?.running ? (
-            <button className="btn primary" onClick={() => send({ type: 'pause' })}>❚❚ Pausar</button>
-          ) : (
-            <button className="btn primary" onClick={() => send({ type: 'play' })}>▶ {stats && stats.time > 0 && !stats.finished ? 'Seguir' : 'Hacer llover'}</button>
-          )}
-          <button className="btn" onClick={() => send({ type: 'reset' })}>↺ Reiniciar</button>
-          <select value={speed} onChange={(e) => setSpeed(+e.target.value)} title="Velocidad de la simulación">
-            <option value={300}>5 min/s</option>
-            <option value={900}>15 min/s</option>
-            <option value={1800}>30 min/s</option>
-          </select>
+          {preset ? <p className="why">{preset.why}</p> : <p className="why custom">Escenario personalizado (cambiaste algún valor a mano).</p>}
         </div>
-        <div className="timeline">
-          <div className="bar"><i style={{ width: `${Math.min(100, ((stats?.time ?? 0) / totalSeconds) * 100)}%` }} /><em style={{ left: `${(scenario.rainHours / (scenario.rainHours + 1)) * 100}%` }} /></div>
-          <div className="row mono small"><span>{fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')}</span><span>{raining ? 'lloviendo' : stats?.finished ? 'fin' : stats && stats.time > scenario.rainHours * 3600 ? 'escurriendo' : ''}</span><span>{fmtHours(scenario.rainHours + 1)}</span></div>
+
+        <div className="step">
+          <h3 className="step-h"><span className="step-n">2</span>Ajustá <em>(opcional)</em></h3>
+          <p className="step-help">Mové los controles para probar tu propio escenario.</p>
+          <section>
+            <label className="row" data-tip="Intensidad: cuántos milímetros de agua caen por hora. 40 mm/h ya es una tormenta fuerte; más de 100 mm/h es excepcional.">
+              <span>Lluvia (intensidad)</span><b className="mono">{scenario.rainMmH} mm/h</b>
+            </label>
+            <input type="range" min={0} max={200} step={5} value={scenario.rainMmH} onChange={(e) => update({ rainMmH: +e.target.value })}
+              aria-label="Intensidad de la lluvia en milímetros por hora" data-tip="Arrastrá para cambiar cuánta lluvia cae por hora" />
+            <div className="permin">
+              <input
+                type="number" min={0} max={3.33} step={0.05} value={+rainMmMin.toFixed(2)}
+                onChange={(e) => update({ rainMmH: Math.max(0, Math.min(200, Math.round(+e.target.value * 60))) })}
+                aria-label="Lluvia en milímetros por minuto" data-tip="La misma intensidad, expresada por minuto. Podés escribir el valor directamente."
+              />
+              <span>mm por minuto = litros por m² por minuto</span>
+            </div>
+            <label className="row" data-tip="Cuánto tiempo dura la lluvia. Después la simulación sigue 1 hora más para ver cómo escurre el agua.">
+              <span>Duración de la lluvia</span><b className="mono">{fmtHours(scenario.rainHours)}</b>
+            </label>
+            <input type="range" min={0.25} max={6} step={0.25} value={scenario.rainHours} onChange={(e) => update({ rainHours: +e.target.value })}
+              aria-label="Duración de la lluvia" data-tip="Arrastrá para cambiar cuánto dura la lluvia" />
+            <div className="hint mono">Total: {(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm ({(scenario.rainMmH * scenario.rainHours).toFixed(0)} L/m²)</div>
+          </section>
+
+          <section>
+            <label className="row" data-tip="Altura del río Paraguay en la escala de Puerto Formosa. Con el río alto, el agua de lluvia no puede salir y el río entra a los bajos.">
+              <span>Altura del río Paraguay</span><b className={`mono river-${riverCat}`}>{scenario.riverStage.toFixed(2)} m</b>
+            </label>
+            {/* Hasta 13 m: por encima del coronamiento de la defensa (11,70 m) para poder mostrar el desborde. */}
+            <input type="range" min={1.5} max={13} step={0.05} value={scenario.riverStage} onChange={(e) => update({ riverStage: +e.target.value })}
+              aria-label="Altura del río Paraguay en metros" data-tip="Arrastrá para subir o bajar el río. Cambiarlo reinicia la simulación." />
+            <div className="scale">
+              {[
+                { v: RIVER_REF.observed.stage, t: 'hoy', d: 'Altura medida hoy' },
+                { v: RIVER_REF.alert, t: 'alerta', d: 'Nivel de alerta del INA' },
+                { v: RIVER_REF.evacuation, t: 'evac.', d: 'Nivel de evacuación del INA' },
+                { v: RIVER_REF.record1983, t: '1983', d: 'Récord histórico de la crecida de 1983' },
+                { v: DEFENSE_CREST_STAGE, t: 'defensa', d: 'Coronamiento de la defensa (dato oficial 2015): por encima, el río la desborda' },
+              ].map((m) => (
+                <button key={m.t} style={{ left: `${((m.v - 1.5) / 11.5) * 100}%` }} onClick={() => update({ riverStage: m.v })} data-tip={`${m.d}: ${m.v} m. Clic para poner el río a esa altura.`}>
+                  <i />{m.t}
+                </button>
+              ))}
+            </div>
+            <div className="hint">Tocá una marca (hoy, alerta, evacuación, 1983, defensa) para usar esa altura. Cambiar el río reinicia la simulación.</div>
+          </section>
+
+          <button className={`advanced-toggle ${showAdvanced ? 'open' : ''}`} onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced}
+            data-tip="Desagüe de la ciudad y falla de la defensa costera. Ya vienen con valores razonables.">
+            <span>{showAdvanced ? '▾' : '▸'}</span> Opciones avanzadas
+            {!showAdvanced && (scenario.defenseFails ? <em className="adv-flag">defensa falla</em> : null)}
+          </button>
+          {showAdvanced && (
+            <section className="advanced">
+              <label className="row" data-tip="Cuánta agua por hora se va por los desagües pluviales y se infiltra en el suelo. Más alto = la ciudad drena mejor.">
+                <span>Desagüe + infiltración</span><b className="mono">{scenario.drainMmH} mm/h</b>
+              </label>
+              <input type="range" min={0} max={40} step={1} value={scenario.drainMmH} onChange={(e) => update({ drainMmH: +e.target.value })}
+                aria-label="Desagüe más infiltración en milímetros por hora" data-tip="Arrastrá para cambiar cuánto drena la ciudad" />
+              <div className="hint">No hay datos públicos de la red pluvial: es un supuesto.</div>
+              {scenario.riverStage >= ASSUMPTIONS.alertStage && (
+                <div className="hint warn">Río en alerta o más: se supone que el desagüe por gravedad se corta y solo queda el bombeo ({Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} %).</div>
+              )}
+              <label className="check" data-tip="Simula una rotura de unos 200 m en el terraplén de defensa, sobre la costa del puerto (inicio del Lote 4): el resto del anillo sigue funcionando y el río entra por la brecha.">
+                <input type="checkbox" checked={scenario.defenseFails} onChange={(e) => update({ defenseFails: e.target.checked })} />
+                Rotura de la defensa (brecha frente al puerto)
+              </label>
+            </section>
+          )}
+        </div>
+
+        <div className="step">
+          <h3 className="step-h"><span className="step-n">3</span>Simulá</h3>
+          <div className="controls">
+            {stats?.running ? (
+              <button className="btn primary" onClick={() => send({ type: 'pause' })} data-tip="Congela la simulación en este momento">❚❚ Pausar</button>
+            ) : (
+              <button className="btn primary big" onClick={() => send({ type: 'play' })}
+                data-tip="Empieza a llover sobre la ciudad con el escenario elegido. El tiempo corre acelerado.">
+                ▶ {stats && stats.time > 0 && !stats.finished ? 'Seguir' : 'Hacer llover'}
+              </button>
+            )}
+            <button className="btn" onClick={() => send({ type: 'reset' })} data-tip="Vuelve a cero: saca el agua de lluvia y deja solo el río">↺ Reiniciar</button>
+            <label className="speed" data-tip="Velocidad: cuántos minutos simulados pasan por cada segundo real">
+              <span>Velocidad</span>
+              <select value={speed} onChange={(e) => setSpeed(+e.target.value)} aria-label="Velocidad de la simulación">
+                <option value={300}>5 min/s</option>
+                <option value={900}>15 min/s</option>
+                <option value={1800}>30 min/s</option>
+              </select>
+            </label>
+          </div>
+          <div className={`status-line st-${phase.cls}`} role="status" aria-live="polite"><i />{phase.text}</div>
+          <div className="timeline" data-tip="Barra de tiempo: la marca amarilla indica cuándo para de llover; después se simula 1 hora más de escurrimiento.">
+            <div className="bar"><i style={{ width: `${Math.min(100, ((stats?.time ?? 0) / totalSeconds) * 100)}%` }} /><em style={{ left: `${(scenario.rainHours / (scenario.rainHours + 1)) * 100}%` }} /></div>
+            <div className="row mono small"><span>{fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')}</span><span>{raining ? 'lloviendo' : stats?.finished ? 'fin' : stats && stats.time > scenario.rainHours * 3600 ? 'escurriendo' : ''}</span><span>{fmtHours(scenario.rainHours + 1)}</span></div>
+          </div>
         </div>
       </aside>
 
       <aside className={`panel right ${collapsed.right ? 'collapsed' : ''}`}>
-        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, right: !c.right }))} title="Mostrar u ocultar">{collapsed.right ? '‹' : '›'}</button>
+        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, right: !c.right }))}
+          data-tip={collapsed.right ? 'Mostrar los resultados' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel de resultados">{collapsed.right ? '‹' : '›'}</button>
+        <h2 className="right-h">Resultados</h2>
+        <p className="step-help">Se actualizan en vivo mientras llueve. Hacé clic en un elemento de la lista para verlo en el mapa.</p>
         <div className="stats">
-          <Stat label="Tiempo simulado" value={fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')} />
-          <Stat label="Lluvia caída" value={`${(stats?.rainMm ?? 0).toFixed(0)} mm`} />
-          <Stat label="Calles con agua sobre el cordón" value={`${(streets?.curbKm ?? 0).toFixed(1)} km`} sub={`${(streets?.impassableKm ?? 0).toFixed(1)} km intransitables`} accent />
-          <Stat label="Edificios con agua ≥ 15 cm" value={bld.wet.toLocaleString('es-AR')} sub={`${bld.near.toLocaleString('es-AR')} con agua cerca · de ${(data?.buildings?.count ?? 0).toLocaleString('es-AR')}`} accent />
-          <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toFixed(1)} km²`} sub="estimado" />
-          <Stat label="Instalaciones" value={`${affectedCounts.afectado}`} sub={`afectadas · ${affectedCounts.atencion} en atención`} accent />
+          <Stat label="Tiempo simulado" value={fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')} tip="Tiempo transcurrido dentro de la simulación (no tiempo real)" />
+          <Stat label="Lluvia caída" value={`${(stats?.rainMm ?? 0).toFixed(0)} mm`} tip="Milímetros de lluvia acumulados hasta ahora (1 mm = 1 litro por m²)" />
+          <Stat label="Calles con agua sobre el cordón" value={`${(streets?.curbKm ?? 0).toFixed(1)} km`} sub={`${(streets?.impassableKm ?? 0).toFixed(1)} km intransitables`} accent
+            tip={`Kilómetros de calle con más de ${STREET.curb * 100} cm de agua (pasa el cordón). Intransitable: más de ${STREET.impassable * 100} cm.`} />
+          <Stat label="Edificios con agua ≥ 15 cm" value={bld.wet.toLocaleString('es-AR')} sub={`${bld.near.toLocaleString('es-AR')} con agua cerca · de ${(data?.buildings?.count ?? 0).toLocaleString('es-AR')}`} accent
+            tip="Edificios de OpenStreetMap con al menos 15 cm de agua alrededor" />
+          <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toFixed(1)} km²`} sub="estimado" tip="Superficie total cubierta por 15 cm de agua o más (incluye lo que entra desde el río)" />
+          <Stat label="Instalaciones" value={`${affectedCounts.afectado}`} sub={`afectadas · ${affectedCounts.atencion} en atención`} accent
+            tip="Hospitales, escuelas, bomberos, etc. Afectada: tiene agua (≥ 15 cm). En atención: hay agua cerca." />
         </div>
 
-        <div className="tabs">
-          <button className={tab === 'calles' ? 'on' : ''} onClick={() => setTab('calles')}>Calles</button>
-          <button className={tab === 'barrios' ? 'on' : ''} onClick={() => setTab('barrios')}>Barrios ({barrios.length})</button>
-          <button className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')}>Infraestructura ({facilities.length})</button>
+        <div className="tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'calles'} className={tab === 'calles' ? 'on' : ''} onClick={() => setTab('calles')} data-tip="Qué calles se llenan de agua y cuántos km">Calles</button>
+          <button role="tab" aria-selected={tab === 'barrios'} className={tab === 'barrios' ? 'on' : ''} onClick={() => setTab('barrios')} data-tip="Barrios ordenados por cuándo les llega el agua">Barrios ({barrios.length})</button>
+          <button role="tab" aria-selected={tab === 'infra'} className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')} data-tip="Hospitales, escuelas, bomberos, etc. ordenados por cuándo les llega el agua">Infraestructura ({facilities.length})</button>
         </div>
         {tab === 'calles' ? (
           <div className="street-sum">
@@ -298,13 +380,18 @@ export default function App() {
             <p className="list-help">Calles con más kilómetros de agua sobre el cordón. Profundidad estimada: en zona urbana se supone que el agua de la manzana se junta en la calzada.</p>
           </div>
         ) : (
-        <p className="list-help">Orden de afectación en esta simulación. <b>Nivel</b> = en qué escenario de referencia se afecta primero (1º lluvia fuerte · 2º temporal severo · 3º extremo).</p>
+        <p className="list-help">
+          Arriba, lo primero que toca el agua en esta simulación (a la derecha, cuándo). La etiqueta de color indica desde qué escenario se afecta:{' '}
+          <span className="tier t1 inline">1º</span> ya con lluvia fuerte · <span className="tier t2 inline">2º</span> con temporal severo ·{' '}
+          <span className="tier t3 inline">3º</span> solo en el extremo · <span className="tier t0 inline">—</span> en ninguno.
+        </p>
         )}
 
         {tab === 'infra' && (
           <div className="filters">
             {(['todas', 'hospital', 'salud', 'escuela', 'seguridad', 'servicios', 'refugio'] as const).map((c) => (
-              <button key={c} className={catFilter === c ? 'on' : ''} onClick={() => setCatFilter(c)}>{c === 'todas' ? 'Todas' : CAT_LABEL[c]}</button>
+              <button key={c} className={catFilter === c ? 'on' : ''} onClick={() => setCatFilter(c)} aria-pressed={catFilter === c}
+                data-tip={c === 'todas' ? 'Mostrar todas las instalaciones' : `Mostrar solo: ${CAT_LABEL[c]}`}>{c === 'todas' ? 'Todas' : CAT_LABEL[c]}</button>
             ))}
           </div>
         )}
@@ -349,7 +436,7 @@ export default function App() {
 
       {sel && (
         <div className="card">
-          <button className="x" onClick={() => { setSelected(null); sceneRef.current?.focusFacility(null); }}>×</button>
+          <button className="x" onClick={() => { setSelected(null); sceneRef.current?.focusFacility(null); }} aria-label="Cerrar ficha" data-tip="Cerrar la ficha">×</button>
           <small>{CAT_LABEL[sel.cat]}</small>
           <h3>{sel.name}</h3>
           <dl>
@@ -362,26 +449,52 @@ export default function App() {
         </div>
       )}
 
-      <footer className="dock">
+      <footer className="dock" ref={dockRef}>
         <div className="layers">
-          <Toggle on={layers.water} onClick={() => setLayers({ ...layers, water: !layers.water })}>Agua en vivo</Toggle>
-          <Toggle on={layers.zones} onClick={() => setLayers({ ...layers, zones: !layers.zones })}>Zonas 1º · 2º · 3º</Toggle>
-          <Toggle on={layers.buildings} onClick={() => setLayers({ ...layers, buildings: !layers.buildings })}>Edificios</Toggle>
-          <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}>Calles y riachos</Toggle>
-          <Toggle on={layers.facilities} onClick={() => setLayers({ ...layers, facilities: !layers.facilities })}>Instalaciones</Toggle>
-          <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}>Nombres</Toggle>
-          <label className="exag" title="Exageración vertical: Formosa es casi plana; 1× es la escala real">
-            <span>Relieve ×{exag}</span>
-            <input type="range" min={EXAG_MIN} max={EXAG_MAX} step={1} value={exag} onChange={(e) => setExag(Number(e.target.value))}
-              aria-label="Exageración vertical del relieve" />
-          </label>
-          <button className={`toggle freecam-btn ${freeCam.active ? 'on' : ''}`} title="Navegar como un dron (tecla F)"
-            onClick={(e) => { e.currentTarget.blur(); sceneRef.current?.setFreeCamera(!freeCam.active); }}>
-            ✈ Cámara libre
-          </button>
-          <span className="sep" />
-          <Toggle on={waterMode === 'order'} onClick={() => setWaterMode(waterMode === 'order' ? 'depth' : 'order')}>Color: {waterMode === 'order' ? 'orden de llegada' : 'profundidad'}</Toggle>
-          <button className="btn ghost" onClick={() => setShowInfo(true)}>ⓘ Supuestos, datos y límites</button>
+          <div className="dock-group" role="group" aria-label="Capas visibles en el mapa">
+            <span className="dock-label">Ver en el mapa</span>
+            <Toggle on={layers.water} onClick={() => setLayers({ ...layers, water: !layers.water })}
+              tip="El agua de la simulación, moviéndose en tiempo real">Agua</Toggle>
+            <Toggle on={layers.zones} onClick={() => setLayers({ ...layers, zones: !layers.zones })}
+              tip="Mapa fijo, precalculado: qué zonas se inundan con lluvia fuerte (1º), con temporal severo (2º) o solo en un evento extremo (3º)">Zonas de riesgo</Toggle>
+            <Toggle on={layers.buildings} onClick={() => setLayers({ ...layers, buildings: !layers.buildings })}
+              tip="Edificios de OpenStreetMap en 3D">Edificios</Toggle>
+            <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}
+              tip="Calles (cambian de color cuando se mojan) y riachos">Calles y riachos</Toggle>
+            <Toggle on={layers.facilities} onClick={() => setLayers({ ...layers, facilities: !layers.facilities })}
+              tip="Hospitales, escuelas, bomberos y otros servicios. Clic en uno para ver su ficha.">Instalaciones</Toggle>
+            <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}
+              tip="Nombres de barrios y calles sobre el mapa">Nombres</Toggle>
+          </div>
+          {layers.water && (
+            <div className="dock-group" role="group" aria-label="Cómo se colorea el agua">
+              <span className="dock-label">Color del agua</span>
+              <div className="seg">
+                <button className={waterMode === 'depth' ? 'on' : ''} aria-pressed={waterMode === 'depth'} onClick={() => setWaterMode('depth')}
+                  data-tip="Más oscuro = más profundo (de 0 a 1,5 m)">Profundidad</button>
+                <button className={waterMode === 'order' ? 'on' : ''} aria-pressed={waterMode === 'order'} onClick={() => setWaterMode('order')}
+                  data-tip="Colorea según cuándo llegó el agua: rojo lo primero, amarillo lo último">Cuándo llegó</button>
+              </div>
+            </div>
+          )}
+          <div className="dock-group" role="group" aria-label="Cámara">
+            <span className="dock-label">Cámara</span>
+            <label className="exag" data-tip="Exagera la altura del terreno para que se vean los bajos. Formosa es casi plana: 1× es la escala real.">
+              <span>Relieve ×{exag}</span>
+              <input type="range" min={EXAG_MIN} max={EXAG_MAX} step={1} value={exag} onChange={(e) => setExag(Number(e.target.value))}
+                aria-label="Exageración vertical del relieve" />
+            </label>
+            <button className={`toggle freecam-btn ${freeCam.active ? 'on' : ''}`} data-tip="Recorré la ciudad como un dron con el teclado (tecla F para entrar o salir)"
+              aria-pressed={freeCam.active}
+              onClick={(e) => { e.currentTarget.blur(); sceneRef.current?.setFreeCamera(!freeCam.active); }}>
+              ✈ Cámara libre
+            </button>
+          </div>
+          <div className="dock-group help" role="group" aria-label="Ayuda">
+            <span className="dock-label">Ayuda</span>
+            <button className="toggle" onClick={() => setShowGuide(true)} data-tip="Guía rápida de uso en 4 pasos">? Cómo se usa</button>
+            <button className="btn ghost" onClick={() => setShowInfo(true)} data-tip="Qué datos usamos, qué suponemos y qué NO podemos asegurar">ⓘ Supuestos y límites</button>
+          </div>
         </div>
         <Legend layers={layers} mode={waterMode} />
       </footer>
@@ -394,6 +507,8 @@ export default function App() {
       )}
 
       {showInfo && <InfoModal data={data} onClose={() => setShowInfo(false)} />}
+      {showGuide && <WelcomeGuide onClose={closeGuide} onShowInfo={() => setShowInfo(true)} />}
+      <TipLayer />
     </div>
   );
 }
@@ -406,14 +521,18 @@ function fmtHours(h: number) {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
   return hh ? `${hh} h${mm ? ` ${mm} min` : ''}` : `${mm} min`;
 }
+function fmtClock(s: number) {
+  const m = Math.max(0, Math.floor(s / 60));
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
 function statusText(l: FacilityLive | null | undefined) {
   if (!l) return '—';
   return l.status === 'afectado' ? 'Con agua (≥ 15 cm)' : l.status === 'atencion' ? 'Agua en las inmediaciones' : 'Sin agua';
 }
 
-function Stat({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+function Stat({ label, value, sub, accent, tip }: { label: string; value: string; sub?: string; accent?: boolean; tip?: string }) {
   return (
-    <div className={`stat ${accent ? 'accent' : ''}`}>
+    <div className={`stat ${accent ? 'accent' : ''}`} data-tip={tip}>
       <span>{label}</span>
       <b className="mono">{value}</b>
       {sub && <small>{sub}</small>}
@@ -423,34 +542,43 @@ function Stat({ label, value, sub, accent }: { label: string; value: string; sub
 function TierBadge({ t }: { t: Tier }) {
   return <span className={`tier t${t}`} title={t ? `Se afecta en el escenario de nivel ${t}` : 'No se afecta en los escenarios de referencia'}>{TIER_LABEL[t]}</span>;
 }
-function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button className={`toggle ${on ? 'on' : ''}`} onClick={onClick}>{children}</button>;
-}
-function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
+function Toggle({ on, onClick, children, tip }: { on: boolean; onClick: () => void; children: React.ReactNode; tip?: string }) {
   return (
-    <div className="legend">
-      {layers.zones && (<>
-        <span><i style={{ background: '#ff2e47' }} />1º lluvia fuerte</span>
-        <span><i style={{ background: '#ff8c1f' }} />2º temporal</span>
-        <span><i style={{ background: '#ffe040' }} />3º extremo</span>
-      </>)}
-      {layers.water && mode === 'depth' && <span><i className="grad" />agua 0 → 1,5 m</span>}
-      {layers.water && mode === 'order' && (<>
-        <span><i style={{ background: '#5a73ff' }} />río (inicio)</span>
-        <span><i style={{ background: '#ff334d' }} />1er tercio</span>
-        <span><i style={{ background: '#ff8c26' }} />2do</span>
-        <span><i style={{ background: '#ffe04d' }} />3er</span>
-      </>)}
-      {layers.lines && (<>
-        <span><i style={{ background: '#73e0ff' }} />calle mojada</span>
-        <span><i style={{ background: '#1a66ff' }} />sobre el cordón</span>
-        <span><i style={{ background: '#ff3352' }} />calle intransitable</span>
-      </>)}
-      {layers.facilities && (<>
-        <span><i style={{ background: '#a9b6c9' }} />instalación sin agua</span>
-        <span><i style={{ background: '#ffc53d' }} />atención (haz)</span>
-        <span><i style={{ background: '#ff3b5c' }} />afectada (haz + pulso)</span>
-      </>)}
+    <button className={`toggle ${on ? 'on' : ''}`} onClick={onClick} aria-pressed={on} data-tip={tip ? `${tip}. Clic para ${on ? 'ocultar' : 'mostrar'}.` : undefined}>
+      <span className="tg-dot" aria-hidden="true" />{children}
+    </button>
+  );
+}
+/** Referencias de color: solo de las capas visibles, cada grupo con su título. */
+function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
+  const groups: { t: string; items: React.ReactNode }[] = [];
+  if (layers.water && mode === 'depth') groups.push({ t: 'Agua', items: <span><i className="grad" />poca → 1,5 m o más</span> });
+  if (layers.water && mode === 'order') groups.push({ t: 'Agua: cuándo llegó', items: (<>
+    <span><i style={{ background: '#5266bd' }} />río (desde el inicio)</span>
+    <span><i style={{ background: '#d9424d' }} />primero</span>
+    <span><i style={{ background: '#de8538' }} />después</span>
+    <span><i style={{ background: '#dec757' }} />al final</span>
+  </>) });
+  if (layers.zones) groups.push({ t: 'Zonas de riesgo', items: (<>
+    <span><i style={{ background: '#d13d47' }} />1º lluvia fuerte</span>
+    <span><i style={{ background: '#d98033' }} />2º temporal</span>
+    <span><i style={{ background: '#d9c252' }} />3º extremo</span>
+  </>) });
+  if (layers.lines) groups.push({ t: 'Calles', items: (<>
+    <span><i style={{ background: '#3894c7' }} />mojada</span>
+    <span><i style={{ background: '#243db8' }} />agua sobre el cordón</span>
+    <span><i style={{ background: '#e5424d' }} />intransitable</span>
+  </>) });
+  if (layers.facilities) groups.push({ t: 'Instalaciones', items: (<>
+    <span><i style={{ background: '#7b8593' }} />sin agua</span>
+    <span><i style={{ background: '#e3b04a' }} />agua cerca</span>
+    <span><i style={{ background: '#e5525f' }} />afectada (late)</span>
+  </>) });
+  if (!groups.length) return null;
+  return (
+    <div className="legend" aria-label="Referencias de colores">
+      <span className="dock-label">Referencias</span>
+      {groups.map((g) => <span key={g.t} className="lg-group"><em>{g.t}:</em>{g.items}</span>)}
     </div>
   );
 }
@@ -479,8 +607,8 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
         <h3>Supuestos declarados</h3>
         <table>
           <tbody>
-            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Estimado: superficie del río en el MDE (mediana 50,0 m) menos una altura típica de la escala (3,7 m). <b>Falta el dato oficial del INA.</b></td></tr>
-            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Supuesto (≈ 11,7 m de escala, por encima de 1983). Solo un tramo cerca del puerto está cargado en OpenStreetMap; el resto de los ~20 km no actúa como barrera.</td></tr>
+            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Dato oficial (Gobierno de Formosa, 08/12/2015): la cota IGN 59 m equivale a 11,70 m en la escala del puerto, de donde sale el cero 47,30 m IGN. <b>A confirmar con el INA.</b> El terreno (FABDEM) usa otro dátum (EGM2008); la diferencia no está verificada.</td></tr>
+            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Dato oficial 2015: 11,70 m de escala. Traza reconstruida (~23,5 km; el dato oficial es ~15 km): 5 tramos reales de OpenStreetMap unidos con conectores estimados, armada por M. Colman. La rotura simulada es una brecha de ~200 m frente al puerto.</td></tr>
             <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>No hay datos públicos de la red pluvial. Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
             <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
             <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>

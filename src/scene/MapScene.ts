@@ -32,9 +32,9 @@ export interface Layers {
 
 /** Seco: tono apagado (por debajo del umbral de bloom); atención/afectado: vivos para resaltar. */
 const STATUS_COLOR: Record<FacilityStatus, THREE.Color> = {
-  seco: new THREE.Color('#a9b6c9'),
-  atencion: new THREE.Color('#ffc53d'),
-  afectado: new THREE.Color('#ff3b5c'),
+  seco: new THREE.Color('#7b8593'),
+  atencion: new THREE.Color('#e3b04a'),
+  afectado: new THREE.Color('#e5525f'),
 };
 
 /** Altura (km) del poste de cada instalación en estado seco: marcadores bajos y discretos. */
@@ -106,8 +106,8 @@ export class MapScene {
     this.labelRenderer.domElement.className = 'label-layer';
     container.appendChild(this.labelRenderer.domElement);
 
-    this.scene.background = new THREE.Color('#030812');
-    this.scene.fog = new THREE.FogExp2('#030812', 0.028);
+    this.scene.background = new THREE.Color('#080b10');
+    this.scene.fog = new THREE.FogExp2('#080b10', 0.028);
 
     this.camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 200);
     this.camera.position.set(2.5, 12.5, 12.5);
@@ -124,7 +124,7 @@ export class MapScene {
     });
     this.freeCam.onChange = (s) => this.onFreeCameraChange?.(s);
 
-    this.scene.add(new THREE.AmbientLight('#7fb6ff', 0.6));
+    this.scene.add(new THREE.AmbientLight('#a9b8c8', 0.6));
     const sun = new THREE.DirectionalLight('#ffffff', 1.0);
     sun.position.set(-5, 10, 4);
     this.scene.add(sun);
@@ -148,7 +148,7 @@ export class MapScene {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.5, 0.4, 0.62));
+    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.16, 0.25, 0.85));
     this.composer.addPass(new OutputPass());
 
     window.addEventListener('resize', this.onResize);
@@ -254,7 +254,7 @@ export class MapScene {
         uShowZones: { value: 0 },
         uShowLines: { value: 1 },
         uTime: { value: 0 },
-        fogColor: { value: new THREE.Color('#030812') },
+        fogColor: { value: new THREE.Color('#080b10') },
         fogDensity: { value: 0.028 },
       },
       vertexShader: /* glsl */ `
@@ -276,24 +276,24 @@ export class MapScene {
         void main() {
           vec2 tuv = vec2(vUv.x, 1.0 - vUv.y);
           float t = clamp((vElev - 49.0) / 14.0, 0.0, 1.0);
-          vec3 col = mix(vec3(0.02, 0.13, 0.17), vec3(0.06, 0.09, 0.22), smoothstep(0.0, 0.7, t));
-          col = mix(col, vec3(0.16, 0.12, 0.30), smoothstep(0.75, 1.0, t));
+          vec3 col = mix(vec3(0.045, 0.075, 0.085), vec3(0.07, 0.08, 0.11), smoothstep(0.0, 0.7, t));
+          col = mix(col, vec3(0.13, 0.12, 0.16), smoothstep(0.75, 1.0, t));
           float sh = clamp(dot(normalize(vN), normalize(vec3(-0.4, 0.75, -0.5))), 0.0, 1.0);
           col *= 0.45 + 0.85 * sh;
           // Curvas de nivel: cada 1 m finas, cada 5 m marcadas.
           float c1 = lineAt(vElev, 1.0) * 0.18;
           float c5 = lineAt(vElev / 5.0, 1.2) * 0.55;
-          col += vec3(0.15, 0.75, 0.95) * max(c1, c5) * 0.6;
+          col += vec3(0.4, 0.55, 0.62) * max(c1, c5) * 0.32;
           // Grilla de 1 km.
           float g = max(lineAt(vW.x, 1.0), lineAt(vW.z, 1.0));
-          col += vec3(0.1, 0.4, 0.6) * g * 0.12;
+          col += vec3(0.3, 0.38, 0.45) * g * 0.07;
           // Calles, riachos y defensa.
           vec4 ln = texture2D(uLines, tuv);
-          col = mix(col, ln.rgb * 1.6, ln.a * uShowLines);
+          col = mix(col, ln.rgb * 1.05, ln.a * uShowLines);
           // Calles: color base (asfalto celeste / tierra ocre) y agua en la calzada.
           vec4 rd = texture2D(uRoads, tuv);
           if (rd.a > 0.01 && uShowLines > 0.5) {
-            vec3 road = mix(vec3(0.42, 0.3, 0.16), vec3(0.26, 0.29, 0.34), rd.g);
+            vec3 road = mix(vec3(0.3, 0.25, 0.18), vec3(0.2, 0.21, 0.23), rd.g);
             col = mix(col, road, rd.a * 0.8);
             // Profundidad en la calle (canal G): bilineal manual sobre la grilla de simulación.
             vec2 p = tuv * uWaterSize - 0.5;
@@ -301,17 +301,17 @@ export class MapScene {
             float s = mix(mix(texture2D(uWater, i0).g, texture2D(uWater, i0 + vec2(dt.x, 0.0)).g, f.x),
                           mix(texture2D(uWater, i0 + vec2(0.0, dt.y)).g, texture2D(uWater, i0 + dt).g, f.x), f.y);
             if (s > uStreet.x) {
-              vec3 wc = s < uStreet.y ? mix(vec3(0.0, 0.8, 1.0), vec3(0.0, 0.45, 1.0), (s - uStreet.x) / (uStreet.y - uStreet.x))
-                      : s < uStreet.z ? mix(vec3(0.05, 0.2, 1.0), vec3(0.4, 0.1, 0.95), (s - uStreet.y) / (uStreet.z - uStreet.y))
-                      : vec3(1.0, 0.2, 0.32) * (0.8 + 0.25 * sin(uTime * 5.0));
+              vec3 wc = s < uStreet.y ? mix(vec3(0.22, 0.58, 0.78), vec3(0.14, 0.4, 0.76), (s - uStreet.x) / (uStreet.y - uStreet.x))
+                      : s < uStreet.z ? mix(vec3(0.14, 0.24, 0.72), vec3(0.4, 0.22, 0.7), (s - uStreet.y) / (uStreet.z - uStreet.y))
+                      : vec3(0.9, 0.26, 0.3) * (0.86 + 0.12 * sin(uTime * 5.0));
               col = mix(col, wc * 0.95, min(1.0, rd.a * 1.6) * smoothstep(uStreet.x, uStreet.x + 0.03, s));
             }
           }
           // Zonas 1ª / 2ª / 3ª.
           float zone = floor(texture2D(uZones, tuv).r * 255.0 / 60.0 + 0.5);
           if (uShowZones > 0.5 && zone > 0.5) {
-            vec3 zc = zone < 1.5 ? vec3(1.0, 0.18, 0.28) : zone < 2.5 ? vec3(1.0, 0.55, 0.12) : vec3(1.0, 0.88, 0.25);
-            float pulse = 0.55 + 0.12 * sin(uTime * 2.0 + vW.x * 3.0);
+            vec3 zc = zone < 1.5 ? vec3(0.82, 0.24, 0.28) : zone < 2.5 ? vec3(0.85, 0.5, 0.2) : vec3(0.85, 0.76, 0.32);
+            float pulse = 0.52 + 0.06 * sin(uTime * 2.0 + vW.x * 3.0);
             col = mix(col, zc, pulse * (zone < 1.5 ? 0.85 : 0.7));
           }
           float fog = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
@@ -325,7 +325,7 @@ export class MapScene {
     // Base del "tablero" holográfico.
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(this.widthKm, 0.02, this.heightKm)),
-      new THREE.LineBasicMaterial({ color: '#2ad4ff', transparent: true, opacity: 0.5 }),
+      new THREE.LineBasicMaterial({ color: '#5d7482', transparent: true, opacity: 0.35 }),
     );
     edge.position.y = -0.01;
     this.scene.add(edge);
@@ -365,17 +365,17 @@ export class MapScene {
         }
       }
       for (const l of osm.waterLines) {
-        if (l.kind === 'defensa') { g.strokeStyle = 'rgba(255,90,220,0.95)'; g.lineWidth = 5; }
-        else { g.strokeStyle = 'rgba(40,140,255,0.8)'; g.lineWidth = l.kind === 'river' ? 4 : 2; }
+        if (l.kind === 'defensa') { g.strokeStyle = 'rgba(196,112,178,0.95)'; g.lineWidth = 5; }
+        else { g.strokeStyle = 'rgba(56,118,190,0.8)'; g.lineWidth = l.kind === 'river' ? 4 : 2; }
         stroke(l.c);
       }
     }
     // Contorno del río Paraguay (máscara).
     const { width: w, height: h } = this.meta;
-    g.fillStyle = 'rgba(10,60,160,0.55)';
+    g.fillStyle = 'rgba(18,58,128,0.55)';
     const sx = W / w, sy = H / h;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_RIVER) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
-    g.fillStyle = 'rgba(255,90,220,0.9)';
+    g.fillStyle = 'rgba(196,112,178,0.9)';
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_DEFENSE) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
     const mk = (c: HTMLCanvasElement) => {
       const tex = new THREE.CanvasTexture(c);
@@ -417,18 +417,18 @@ export class MapScene {
         void main() {
           if (vDepth < 0.03 && vRiver < 0.5) discard;
           float d = clamp(vDepth / 1.5, 0.0, 1.0);
-          vec3 shallow = vec3(0.12, 0.62, 0.85), deep = vec3(0.02, 0.16, 0.6);
+          vec3 shallow = vec3(0.13, 0.4, 0.58), deep = vec3(0.035, 0.12, 0.37);
           vec3 col = mix(shallow, deep, sqrt(d));
-          if (vRiver > 0.5) col = vec3(0.03, 0.2, 0.65);
+          if (vRiver > 0.5) col = vec3(0.05, 0.14, 0.34);
           else if (uMode > 0.5 && vTWet >= 0.0) {
             float f = clamp(vTWet / max(uSimTime, 1.0), 0.0, 1.0);
-            col = f < 0.3334 ? vec3(1.0, 0.2, 0.3) : f < 0.6667 ? vec3(1.0, 0.55, 0.15) : vec3(1.0, 0.88, 0.3);
-            if (vTWet == 0.0) col = vec3(0.35, 0.45, 1.0);
+            col = f < 0.3334 ? vec3(0.85, 0.26, 0.3) : f < 0.6667 ? vec3(0.87, 0.52, 0.22) : vec3(0.87, 0.78, 0.34);
+            if (vTWet == 0.0) col = vec3(0.32, 0.4, 0.74);
           }
           // Frente de avance: celdas mojadas hace poco brillan.
           float age = uSimTime - vTWet;
-          if (vRiver < 0.5 && vTWet > 0.0 && age < 900.0) col += vec3(0.35, 0.7, 0.9) * (1.0 - age / 900.0) * 0.35;
-          float ripple = 0.035 * sin(vW.x * 40.0 + uTime * 1.7) * sin(vW.z * 37.0 - uTime * 1.3);
+          if (vRiver < 0.5 && vTWet > 0.0 && age < 900.0) col += vec3(0.3, 0.55, 0.7) * (1.0 - age / 900.0) * 0.2;
+          float ripple = 0.02 * sin(vW.x * 40.0 + uTime * 1.7) * sin(vW.z * 37.0 - uTime * 1.3);
           col += ripple;
           float a = vRiver > 0.5 ? 0.8 : smoothstep(0.03, 0.3, vDepth) * 0.88;
           gl_FragColor = vec4(col, a);
@@ -586,9 +586,9 @@ export class MapScene {
         uniform float uThr; uniform float uTime;
         varying float vRel; varying float vDepth;
         void main() {
-          vec3 wall = mix(vec3(0.03, 0.08, 0.17), vec3(0.1, 0.38, 0.55), smoothstep(0.7, 1.0, vRel));
-          if (vDepth >= uThr) wall = mix(vec3(0.35, 0.03, 0.08), vec3(1.0, 0.25, 0.35), smoothstep(0.5, 1.0, vRel) * (0.8 + 0.2 * sin(uTime * 4.0)));
-          else if (vDepth >= 0.1) wall = mix(vec3(0.3, 0.2, 0.02), vec3(1.0, 0.75, 0.2), smoothstep(0.6, 1.0, vRel));
+          vec3 wall = mix(vec3(0.07, 0.08, 0.1), vec3(0.2, 0.24, 0.28), smoothstep(0.7, 1.0, vRel));
+          if (vDepth >= uThr) wall = mix(vec3(0.3, 0.06, 0.08), vec3(0.88, 0.3, 0.33), smoothstep(0.5, 1.0, vRel) * (0.88 + 0.12 * sin(uTime * 4.0)));
+          else if (vDepth >= 0.1) wall = mix(vec3(0.28, 0.2, 0.06), vec3(0.88, 0.66, 0.27), smoothstep(0.6, 1.0, vRel));
           gl_FragColor = vec4(wall, 0.95);
         }`,
     });
@@ -610,7 +610,7 @@ export class MapScene {
       fade.set([g, g, g], k * 3);
     }
     beamGeo.setAttribute('color', new THREE.BufferAttribute(fade, 3));
-    const beamMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false });
+    const beamMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75, depthWrite: false });
     this.beams = new THREE.InstancedMesh(beamGeo, beamMat, n);
     // Disco chato tipo "badge": centro tenue y borde algo más marcado. Se dibuja por encima
     // de los edificios (sin depthTest) para que el punto se lea aun entre manzanas densas.
@@ -623,7 +623,7 @@ export class MapScene {
       rim.set([g, g, g], k * 3);
     }
     baseGeo.setAttribute('color', new THREE.BufferAttribute(rim, 3));
-    const baseMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
+    const baseMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.65, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
     this.bases = new THREE.InstancedMesh(baseGeo, baseMat, n);
     this.bases.renderOrder = 3;
     this.beams.renderOrder = 2;
@@ -827,7 +827,7 @@ export class MapScene {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.userData.speed = speed;
     geo.setDrawRange(0, 0);
-    this.rain = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: '#9fe7ff', transparent: true, opacity: 0.45 }));
+    this.rain = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: '#a7bfcc', transparent: true, opacity: 0.35 }));
     this.scene.add(this.rain);
   }
   setRain(mmPerHour: number, raining: boolean) {
