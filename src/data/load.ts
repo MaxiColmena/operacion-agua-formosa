@@ -11,7 +11,7 @@ export interface TerrainMeta {
   source: string;
 }
 
-export type FacilityCat = 'hospital' | 'salud' | 'escuela' | 'seguridad' | 'servicios' | 'refugio' | 'transporte';
+export type FacilityCat = 'hospital' | 'salud' | 'escuela' | 'seguridad' | 'servicios' | 'publico' | 'transporte';
 
 export interface Facility {
   id: string;

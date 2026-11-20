@@ -3,7 +3,7 @@ import { loadAll, type AppData, type FacilityCat } from './data/load';
 import { DEFAULT_EXAG, EXAG_MAX, EXAG_MIN, MapScene, type Layers, type WaterMode } from './scene/MapScene';
 import type { WorkerIn, WorkerOut, SimStats } from './sim/worker';
 import type { Scenario } from './sim/engine';
-import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS, STREET } from './sim/scenarios';
+import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS, STREET, INA_SCALE, INA_CATEGORY_REF, RAIN_FORECAST_7D } from './sim/scenarios';
 import {
   evalBarrios, evalFacilities, evalStreets, fmtTime, prepareBarrios, prepareFacilities, prepareStreets,
   type BarrioInfo, type BarrioLive, type FacilityInfo, type FacilityLive, type StreetLive, type StreetSamples, type Tier,
@@ -18,10 +18,10 @@ const DEFENSE_CREST_STAGE = +(ASSUMPTIONS.defenseCrest - ASSUMPTIONS.gaugeZero).
 
 const CAT_LABEL: Record<FacilityCat, string> = {
   hospital: 'Hospital', salud: 'Salud', escuela: 'Escuela', seguridad: 'Bomberos / Policía',
-  servicios: 'Agua / Energía', refugio: 'Refugio / Municipio', transporte: 'Transporte',
+  servicios: 'Agua / Energía', publico: 'Municipio / Asistencia social', transporte: 'Transporte',
 };
 const CAT_ICON: Record<FacilityCat, string> = {
-  hospital: '✚', salud: '+', escuela: '▲', seguridad: '◆', servicios: '⚡', refugio: '⌂', transporte: '✈',
+  hospital: '✚', salud: '+', escuela: '▲', seguridad: '◆', servicios: '⚡', publico: '⌂', transporte: '✈',
 };
 const TIER_LABEL = ['—', '1º', '2º', '3º'];
 const THR_ROW: Record<ThresholdState, string> = { alcanzado: 'st-afectado', riesgo: 'st-atencion', lejos: '' };
@@ -240,8 +240,8 @@ export default function App() {
           <button className="tag tag-help" onClick={() => setShowGuide(true)} data-tip="Guía rápida: qué es este simulador y cómo usarlo en 4 pasos">
             ? ¿Cómo se usa?
           </button>
-          <span className="tag tag-obs" data-tip={`Altura real del río Paraguay medida en Puerto Formosa. ${RIVER_REF.observed.source}`}>
-            OBSERVADO · río {RIVER_REF.observed.stage.toFixed(2)} m · {RIVER_REF.observed.date}
+          <span className="tag tag-obs" data-tip={`Altura real del río Paraguay medida en Puerto Formosa (${RIVER_REF.observed.trend}). Categoría según la escala del INA. Fuente: ${RIVER_REF.observed.source}.`}>
+            OBSERVADO · río {fmtStage(RIVER_REF.observed.stage)} · {RIVER_REF.observed.inaCategory} (INA) · {RIVER_REF.observed.date}
           </span>
           <a className="tag tag-ina" href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer"
             data-tip="Abre el sitio del INA (pronóstico oficial del río) en otra pestaña. No se carga automáticamente aquí.">PREVISIÓN INA · consultar ↗</a>
@@ -302,7 +302,7 @@ export default function App() {
               aria-label="Altura del río Paraguay en metros" data-tip="Arrastrá para subir o bajar el río. Cambiarlo reinicia la simulación." />
             <div className="scale">
               {[
-                { v: RIVER_REF.observed.stage, t: 'hoy', d: 'Altura medida hoy' },
+                { v: RIVER_REF.observed.stage, t: 'hoy', d: `Altura medida el ${RIVER_REF.observed.date} (${RIVER_REF.observed.inaCategory} según el INA)` },
                 { v: RIVER_REF.alert, t: 'alerta', d: 'Nivel de alerta del INA' },
                 { v: RIVER_REF.evacuation, t: 'evac.', d: 'Nivel de evacuación del INA' },
                 { v: RIVER_REF.record1983, t: '1983', d: 'Récord histórico de la crecida de 1983' },
@@ -314,6 +314,9 @@ export default function App() {
               ))}
             </div>
             <div className="hint">Tocá una marca (hoy, alerta, evacuación, 1983, defensa) para usar esa altura. Cambiar el río reinicia la simulación.</div>
+            <div className="hint" data-tip={`Escala del INA (frecuencia 1991–2020): ${INA_SCALE.join(' · ')}. El INA no publica los límites en metros, así que no clasificamos alturas hipotéticas. Lecturas reales clasificadas por el INA: ${INA_CATEGORY_REF.map((r) => `${fmtStage(r.stage)} = ${r.cat} (${r.date})`).join('; ')}.`}>
+              Escala INA: hoy <b>{RIVER_REF.observed.inaCategory}</b>. Referencias reales: {INA_CATEGORY_REF.slice(0, 2).map((r) => `${fmtStage(r.stage)} = ${r.cat}`).join(' · ')}. Alerta {fmtStage(RIVER_REF.alert)} · evacuación {fmtStage(RIVER_REF.evacuation)}.
+            </div>
           </section>
 
           <button className={`advanced-toggle ${showAdvanced ? 'open' : ''}`} onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced}
@@ -430,7 +433,7 @@ export default function App() {
 
         {tab === 'infra' && (
           <div className="filters">
-            {(['todas', 'hospital', 'salud', 'escuela', 'seguridad', 'servicios', 'refugio'] as const).map((c) => (
+            {(['todas', 'hospital', 'salud', 'escuela', 'seguridad', 'servicios', 'publico'] as const).map((c) => (
               <button key={c} className={catFilter === c ? 'on' : ''} onClick={() => setCatFilter(c)} aria-pressed={catFilter === c}
                 data-tip={c === 'todas' ? 'Mostrar todas las instalaciones' : `Mostrar solo: ${CAT_LABEL[c]}`}>{c === 'todas' ? 'Todas' : CAT_LABEL[c]}</button>
             ))}
@@ -708,9 +711,10 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
         <h3>Datos utilizados</h3>
         <table>
           <tbody>
-            <tr><td><span className="tag tag-obs">OBSERVADO</span></td><td>Río Paraguay en Puerto Formosa: {RIVER_REF.observed.stage} m el {RIVER_REF.observed.date} ({RIVER_REF.observed.trend}). {RIVER_REF.observed.source}.</td></tr>
-            <tr><td><span className="tag tag-obs">REFERENCIA INA</span></td><td>Alerta {RIVER_REF.alert} m · Evacuación {RIVER_REF.evacuation} m (Puerto Formosa). Récord de 1983: {RIVER_REF.record1983} m.</td></tr>
+            <tr><td><span className="tag tag-obs">OBSERVADO</span></td><td>Río Paraguay en Puerto Formosa: {fmtStage(RIVER_REF.observed.stage)} el {RIVER_REF.observed.date} ({RIVER_REF.observed.trend}, {RIVER_REF.observed.inaCategory}). {RIVER_REF.observed.source}.</td></tr>
+            <tr><td><span className="tag tag-obs">REFERENCIA INA</span></td><td>Alerta {fmtStage(RIVER_REF.alert)} · Evacuación {fmtStage(RIVER_REF.evacuation)} (Puerto Formosa). Récord de 1983: {fmtStage(RIVER_REF.record1983)}. Escala de cinco categorías por frecuencia 1991–2020 ({INA_SCALE.join(', ')}): el INA informa la categoría de cada lectura pero no publica los límites en metros, por eso la herramienta no clasifica alturas hipotéticas. Lecturas clasificadas: {INA_CATEGORY_REF.map((r) => `${fmtStage(r.stage)} = ${r.cat} (${r.date}, ${r.source})`).join('; ')}.</td></tr>
             <tr><td><span className="tag tag-ina">PREVISIÓN INA</span></td><td>No se integra en vivo. Consultar <a href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer">alerta.ina.gob.ar</a> y cargar el valor como escenario.</td></tr>
+            <tr><td><span className="tag tag-ina">ESTIMADO</span></td><td>Pronóstico de lluvia a 7 días, departamento Formosa: {RAIN_FORECAST_7D.meanMm} mm de promedio, hasta {RAIN_FORECAST_7D.maxMm} mm ({RAIN_FORECAST_7D.source}). Es un pronóstico, no una medición. El escenario «7 días» supone que el máximo cae en una sola tormenta de 3 h.</td></tr>
             <tr><td><span className="tag">TERRENO</span></td><td>{data?.meta.source}. Terreno desnudo estimado con aprendizaje automático a partir de un modelo satelital de superficie: puede quedar algún resto de edificios o árboles. Precisión vertical de 1 a 2 m en zonas planas.</td></tr>
             <tr><td><span className="tag">BASE</span></td><td>{data?.osm?.source ?? 'OpenStreetMap (no cargado)'}: infraestructura, calles, riachos, barrios y edificios.</td></tr>
           </tbody>

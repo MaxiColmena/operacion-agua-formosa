@@ -54,7 +54,6 @@ function point(e: El): [number, number] | null {
 const infra = await overpass('infra', `
   nwr[amenity~"^(school|kindergarten|college|university|hospital|clinic|doctors|fire_station|police|townhall|social_facility)$"];
   nwr[healthcare];
-  nwr[emergency=assembly_point];
   nwr[man_made~"^(water_works|wastewater_plant|pumping_station|water_tower)$"];
   nwr[power=substation];
   nwr[aeroway=aerodrome];
@@ -67,7 +66,7 @@ function category(t: Record<string, string>): string | null {
   if (a && /school|kindergarten|college|university/.test(a)) return 'escuela';
   if (a === 'fire_station' || a === 'police') return 'seguridad';
   if (t.man_made || t.power) return 'servicios';
-  if (t.emergency === 'assembly_point' || a === 'social_facility' || a === 'townhall') return 'refugio';
+  if (a === 'social_facility' || a === 'townhall') return 'publico';
   if (t.aeroway || a === 'bus_station') return 'transporte';
   return null;
 }

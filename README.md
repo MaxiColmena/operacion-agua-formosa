@@ -45,9 +45,10 @@ Los edificios vienen de Microsoft Global ML Building Footprints. El script `buil
 ### Qué se puede hacer
 
 - **Escenario:** lluvia en mm/h o en **mm por minuto** (1 mm = 1 litro por m²), duración, altura del río en Puerto Formosa (con marcas de hoy, alerta, evacuación y 1983), capacidad de desagüe y "falla de la defensa".
-- **Escenarios de referencia:** Nivel 1 (lluvia fuerte), Nivel 2 (temporal severo con el río en alerta), Nivel 3 (extremo con el río en evacuación) y la crecida histórica de 1983.
+- **Escenarios de referencia:** Nivel 1 (lluvia fuerte), Nivel 2 (temporal severo con el río en alerta), Nivel 3 (extremo con el río en evacuación), **7 días** (el máximo del pronóstico de lluvia del 17/11/2026, 150 mm, concentrado en una tormenta de 3 h; rotulado ESTIMADO), y las crecidas de 1983 y 2015-16. Son **escenarios**, no categorías: para clasificar la altura del río se usa la escala del INA.
+- **Escala del INA:** el dato observado muestra su categoría oficial (por ejemplo, 4,96 m = aguas medias el 17/11/2026). El INA no publica los límites de sus cinco categorías en metros, así que la herramienta **no clasifica alturas hipotéticas**: muestra lecturas reales ya clasificadas por el INA como referencia.
 - **Hacer llover:** la simulación corre en vivo, a 5, 15 o 30 minutos simulados por segundo.
-- **Orden de afectación:** lista de barrios e infraestructura (hospitales, salud, escuelas, bomberos y policía, servicios) ordenada por el momento en que el agua los alcanza. Cada uno indica su **nivel de referencia** (1º, 2º o 3º).
+- **Orden de afectación:** lista de calles, barrios e infraestructura (hospitales, salud, escuelas, bomberos y policía, servicios, municipio y asistencia social) ordenada por el momento en que el agua los alcanza. Cada uno indica su **nivel de referencia** (1º, 2º o 3º).
 - **Capas:** agua en vivo, coloreada por profundidad o por **orden de llegada**; zonas precalculadas 1º/2º/3º; edificios, calles, riachos y barrios.
 - **Transparencia:** etiquetas OBSERVADO / PREVISIÓN INA / ESCENARIO DEL USUARIO y un panel con supuestos, datos y límites, como pide la guía.
 
@@ -63,7 +64,22 @@ Los edificios vienen de Microsoft Global ML Building Footprints. El script `buil
 | Interfaz | `src/App.tsx` | Paneles de escenario, orden de afectación, capas y supuestos |
 | Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua) y `build-zones` (zonas 1º/2º/3º a 30 m) |
 
-**Supuesto clave a reemplazar:** el **cero de escala de Puerto Formosa** (se usa 46,3 m, estimado desde la superficie del río en el MDE). Cuando se consiga el valor oficial del INA, se cambia en `src/sim/scenarios.ts` y se corre `npm run data:zones`.
+**Supuesto clave a confirmar:** el **cero de escala de Puerto Formosa**. Se usa **47,30 m IGN**, deducido del dato oficial del Gobierno de Formosa (08/12/2015): la cota IGN 59 m equivale a 11,70 m de escala en el puerto. Falta confirmarlo con el INA y verificar la diferencia de dátum con el terreno (FABDEM está en EGM2008). Si cambia, se edita en `src/sim/scenarios.ts` y se corren `npm run data:zones` y `npm run data:thresholds`.
+
+**Defensa:** el dato oficial habla de ~15 km de terraplén (otras notas de prensa dicen ~20 km). La traza del modelo mide ~23,5 km porque une 5 tramos reales de OpenStreetMap con conectores estimados. Se usa como barrera, con el coronamiento oficial (11,70 m de escala).
+
+### Qué NO hace (para no pisar a otros equipos)
+
+El evento tiene siete desafíos. Esta herramienta responde solo al **Desafío 3: qué podría afectarse en un escenario**. A propósito no hace:
+
+| No hace | Lo trabaja | Cómo se conecta |
+|---|---|---|
+| Recorridos de evacuación, centros de recepción, capacidades o responsables | Equipo 3 · Evacuaciones | Nuestras zonas y calles intransitables pueden ser la **entrada** de su simulador |
+| Comparar imágenes satelitales por fecha o detectar cambios de agua | Equipo 1 · Imágenes satelitales | Una mancha satelital real solo serviría, a lo sumo, para validar el modelo |
+| Consultar o comparar registros de lluvia por estación | Equipo 5 · Reporte pluvial | La lluvia es solo una **entrada** del escenario |
+| Registrar avisos o incidentes reales de vecinos | Equipo 4 · Reporte de incidentes | Las calles anegadas son **simuladas**, no reportadas |
+| Inventario de atajaderos | Equipo 6 · Atajaderos | — |
+| Pronosticar el nivel del río | INA | Solo enlazamos a la previsión oficial |
 
 ---
 
@@ -94,7 +110,7 @@ Un **mapa 3D de Formosa Capital con estética "holográfica"** (oscuro, líneas 
 
 - qué zonas quedarían expuestas al agua,
 - en qué **orden** se van afectando a medida que el escenario empeora,
-- qué **infraestructura crítica** queda expuesta: escuelas, hospitales y centros de salud, centros de evacuados, estaciones de bombeo, rutas y accesos,
+- qué **infraestructura crítica** queda expuesta: escuelas, hospitales y centros de salud, bomberos y policía, estaciones de bombeo y servicios, calles y accesos,
 - **qué datos y supuestos** se usaron, y cuánta **incertidumbre** tiene el resultado.
 
 **Referencias visuales que trajo el equipo:**
@@ -128,9 +144,11 @@ El Niño se usa como **marco** para elegir escenarios realistas, por ejemplo: "r
 
 Con un modelo del terreno de 30 m y ~2 m de error vertical no se puede decir que un sector "se inunda en 3 horas". Lo que sí se puede mostrar con honestidad es el **orden de exposición**: para cada escuela u hospital, **a partir de qué nivel del río queda conectado al agua**. Por ejemplo: "esta escuela empieza a estar expuesta con el río a ~8,5 m". Eso responde "qué se afecta primero" sin inventar tiempos.
 
+**Cómo quedó en el prototipo:** la simulación de lluvia sí calcula minutos de llegada del agua, pero se usan **solo para ordenar** (qué se moja antes que qué), nunca como un pronóstico de "en 40 minutos". La app lo dice en el panel de límites. Además, la lista se puede ordenar por **umbral de altura del río**, que no depende de tiempos.
+
 ### 2.3 Mostrar zonas a evaluar, no veredictos
 
-La guía lo dice explícitamente. El mapa tiene que hablar de **prioridad de evaluación** (alta, media o baja) y no de "esta manzana se inunda".
+La guía lo dice explícitamente. El mapa tiene que hablar de **zonas a evaluar** y de **orden** (1º, 2º, 3º) y no de "esta manzana se inunda". Para clasificar la altura del río se usa solo la escala del INA, sin categorías propias.
 
 ### 2.4 "Holográfico" es una estética, no un requisito técnico
 
@@ -173,7 +191,7 @@ Según el monitor de alturas que toma la lectura de Prefectura/INA, el umbral de
 ## 4. Cómo se inunda Formosa Capital
 
 - **Ubicación:** margen derecha del río Paraguay, ~26°11′S 58°10′O, altura media ~57 m s. n. m. Cursos de agua urbanos y periurbanos: riacho Formosa, riacho El Pucú, riacho Chajá o Sian, y la laguna Oca (antiguo cauce del Paraguay, Reserva de Biosfera desde 2001).
-- **Defensa:** la ciudad tiene una **línea de defensa contra inundaciones de ~20 km**. Quienes viven **fuera** de ella son los primeros afectados en las crecidas.
+- **Defensa:** la ciudad tiene una **línea de defensa contra inundaciones** (~15 km según el dato oficial; la prensa también cita ~20 km; la traza del modelo mide ~23,5 km, ver sección 0). Quienes viven **fuera** de ella son los primeros afectados en las crecidas.
 - **Barrios fuera del anillo** citados en la crecida de diciembre de 2015: **La Floresta, Laguna Siam y Fachini**. También se citan barrios ribereños de la "zona de islas" y la laguna Oca.
 - **Problema pluvial:** hay crónicas de **70 mm en una hora** (entre las 7 y las 8 de la mañana) que colapsaron el centro y los barrios, con calles de tierra en el norte de la ciudad que dificultan el acceso de maquinaria. En marzo de 2021 se acumularon **180 mm**, con agua dentro de viviendas en varios barrios.
 - **Estaciones de bombeo del recinto:** el informe semanal del INA sobre la cuenca del Paraguay incluye una tabla con la **condición de las estaciones de bombeo del recinto de defensa de la ciudad de Formosa en función del nivel del río**. Es un dato clave para el escenario combinado. La tabla viene como imagen en el PDF y hay que transcribirla a mano.
@@ -198,11 +216,16 @@ Según el monitor de alturas que toma la lectura de Prefectura/INA, el umbral de
 | 30/10/2026 | 5,59 m | Agrofy (lectura INA/PNA) |
 | 01/11/2026 | 5,48 m | El Monterizo |
 | 04/11/2026 | 5,54 m | Guau Formosa |
-| 17/11/2026 | 4,81 m (bajando) | Agrofy |
+| **17/11/2026** | **4,96 m (estable, aguas medias)** | **Parte «Situación hídrica y agroambiental», Subsecretaría de Producción Sustentable de Formosa (Prefectura / INA). Es el dato que usa la app.** |
+
+  Ojo: Agrofy publicó 4,81 m para el mismo día, y la tabla del parte trae dos series para Formosa (una cierra en 4,89 m y otra en 4,96 m). Se usa la del encabezado del parte (4,96 m).
 
   El Ing. Juan Borús (INA) anticipó que la crecida del Paraná impactaría en Formosa por efecto remanso. El 29/10/2026 la provincia **activó su plan de contingencia**, con traslado de ganado en Banco Payaguá, General Mansilla y Colonia Cano.
 
-**Lectura:** el río subió unos 2,7 m en octubre y hoy está en **aguas medias, bajando**, lejos de la alerta (7,80 m). El escenario de riesgo para la demo es **hipotético**, no lo que pasa hoy. Eso encaja con la consigna.
+- **Boletín El Niño N°8 (Dirección Nacional de Política Hídrica, 22/10/2026):** el SMN da **100 % de probabilidad** de que siga la fase El Niño en oct–nov–dic 2026, con lluvias por encima de lo normal en el **extremo este de Pilcomayo-Bermejo** (donde está Formosa). El INA ubicaba a Formosa en el *"rango central de aguas medias"*, en ascenso.
+- **Parte provincial del 17/11/2026:** el Paraná está alto (Corrientes, Barranqueras y Paso de la Patria en alerta, Goya sobre la evacuación), lo que frena la salida del Paraguay (efecto remanso). Pronóstico de lluvia a 7 días para el departamento Formosa: **129 mm de promedio y hasta 150 mm** (Open-Meteo, ESTIMADO). El 67 % de la superficie provincial tiene suelos húmedos o muy húmedos (Sentinel-1, 16/09–31/10). El día pluviométrico oficial cierra a las 7 h.
+
+**Lectura:** el río subió unos 2,7 m en octubre y hoy está en **aguas medias, estable**, a 2,84 m de la alerta (7,80 m). El escenario de riesgo para la demo es **hipotético**, no lo que pasa hoy. Eso encaja con la consigna.
 
 ---
 
@@ -238,7 +261,10 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 | CHIRPS / GPM-IMERG (vía Google Earth Engine) | Lluvia satelital diaria o por hora | EST | Completar huecos y ver lluvias históricas sobre la cuenca |
 | NOAA CPC – ENSO (RONI) | Estado y pronóstico de El Niño | EST | Marco del escenario |
 
-**Dato faltante:** el **cero de la escala de Puerto Formosa en cota IGN**. Sin él no se puede pasar "nivel del río en m" a "cota del agua en m s. n. m." sobre el MDE. El repositorio del INA tiene tablas con el cero de escala por estación (por ejemplo, Puerto Pilcomayo = 52,29 m IGN). **Hay que buscar el de Formosa.**
+| Parte «Situación hídrica y agroambiental» (Subsecretaría de Producción Sustentable de Formosa, 17/11/2026) | Alturas de Prefectura/INA, pronóstico de lluvia a 7 días por departamento, humedad del suelo | OBS / EST | Dato observado de la app y escenario «7 días» |
+| Boletín El Niño N°8 (Dirección Nacional de Política Hídrica, 22/10/2026) | Fase ENOS (SMN), perspectiva trimestral y situación del río Paraguay (INA) | EST / OBS | Marco del escenario y categoría INA |
+
+**Dato a confirmar:** el **cero de la escala de Puerto Formosa en cota IGN**. Hoy se usa 47,30 m, deducido del dato oficial provincial de 2015 (sección 0). El repositorio del INA tiene tablas con el cero de escala por estación (por ejemplo, Puerto Pilcomayo = 52,29 m IGN): falta encontrar el de Formosa para confirmarlo.
 
 ### 7.2 Terreno (MDE)
 
@@ -263,13 +289,13 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 | Google Open Buildings 2.5D Temporal | Presencia y **altura de edificios** a ~4 m efectivos, 2016–2023, cubre Latinoamérica | EST |
 | Overture Maps / OSM buildings | Huellas de edificios | REF |
 
-### 7.4 Agua observada desde satélite (para validar y entrenar)
+### 7.4 Validación (no se muestra en la app)
+
+Comparar y detectar cambios en imágenes satelitales es el desafío del **Equipo 1**. Nosotros no mostramos imágenes ni detectamos cambios. Como mucho, un mapa de inundación ya hecho sirve para **validar** el modelo por fuera de la app:
 
 | Fuente | Qué aporta |
 |---|---|
-| Carta Internacional de Desastres, activación del 28/12/2015 (CONAE) | Mapas de inundación de Formosa ciudad, enero de 2016 |
-| Sentinel-1 SAR (Google Earth Engine) | Radar que ve agua **con nubes**. Permite armar un inventario de manchas de agua desde 2015 |
-| JRC Global Surface Water | Frecuencia histórica de agua superficial (1984 en adelante) |
+| Carta Internacional de Desastres, activación del 28/12/2015 (CONAE) | Mapas de inundación de Formosa ciudad, enero de 2016, ya elaborados |
 
 ---
 
@@ -278,19 +304,19 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 | Opción | Cómo funciona | Pros | Contras | ¿Para nosotros? |
 |---|---|---|---|---|
 | **"Bañadera" conectada** (bathtub) | Se inunda toda celda por debajo de la cota del agua **y conectada** al río | Simple, rápida, explicable | Ignora tiempo, caudal y obras | **Sí, para lo fluvial**, con la defensa como barrera |
-| **HAND** (altura sobre el drenaje más cercano) | Mide cuánto está cada celda por encima del cauce más cercano | Muy usada para mapas rápidos | Pierde precisión en **llanuras**, terrenos de poco relieve y con MDE grueso | Como **variable de entrada** del modelo de IA |
+| **HAND** (altura sobre el drenaje más cercano) | Mide cuánto está cada celda por encima del cauce más cercano | Muy usada para mapas rápidos | Pierde precisión en **llanuras**, terrenos de poco relieve y con MDE grueso | No |
 | **Llenado de depresiones** (fill-and-spill) | La lluvia llena los "pozos" del terreno y desborda al siguiente | Muestra dónde se acumula la lluvia | No modela desagües ni bombas | **Sí, para lo pluvial** (aproximado) |
-| Modelo hidráulico 2D (HEC-RAS 2D, LISFLOOD-FP) | Resuelve el flujo del agua en el tiempo | Lo más realista | Pide datos de desagües y calibración que no tenemos | **No** (fuera de alcance) |
-| **Susceptibilidad con ML** | Se entrena un clasificador con manchas reales (Sentinel-1) y variables del terreno | Usa la historia real de Formosa | Necesita buenos eventos etiquetados | **Sí, como capa de IA** |
+| Modelo hidráulico 2D (HEC-RAS 2D, LISFLOOD-FP) | Resuelve el flujo del agua en el tiempo | Lo más realista | Pide datos de desagües y calibración que no tenemos | **Sí, simplificado**: el prototipo usa inercia local (base de LISFLOOD-FP) con desagüe declarado |
+| Susceptibilidad con ML entrenada con imágenes satelitales | Clasificador con manchas reales (Sentinel-1) | Usa la historia real | Pisa el desafío de imágenes satelitales (Equipo 1) | **No** |
 
-### Propuesta: modelo híbrido en 3 capas
+### Propuesta original (lo que se implementó está en la sección 0)
 
 1. **Capa fluvial:** el operador elige el **nivel del río** (por ejemplo 7,80 / 8,30 / 9,00 / 10,73 m). Se convierte a cota con el cero de escala y se inunda "por bañadera conectada", respetando el anillo de defensa como barrera (con un interruptor opcional de **falla de defensa**).
    - De ahí sale el **umbral de exposición** de cada edificio crítico: **el nivel del río al que queda conectado al agua**. Eso permite ordenar "qué se afecta primero".
 2. **Capa pluvial:** el operador elige la **lluvia** (mm en X horas). Se marcan las depresiones del terreno que se llenan con ese volumen, suponiendo una capacidad de desagüe y bombeo **declarada en pantalla**. Si el río está alto, se aplica la regla de las estaciones de bombeo del INA.
-3. **Capa IA (susceptibilidad):** un mapa de **probabilidad relativa** de anegamiento aprendido de eventos reales. Se usa para **priorizar**, no para afirmar.
+3. ~~Capa IA de susceptibilidad con imágenes satelitales~~: descartada para no pisar al Equipo 1.
 
-**Salida:** cada sector o edificio recibe una **prioridad de evaluación** (alta, media o baja), con la explicación de por qué y con los supuestos visibles.
+**Salida:** cada sector, calle o edificio recibe un **orden de afectación** (1º, 2º o 3º, y el minuto o la altura del río a la que se afecta), con los supuestos visibles.
 
 ---
 
@@ -298,18 +324,18 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 | Categoría | Por qué importa | Fuente |
 |---|---|---|
-| Escuelas | **Doble rol:** pueden quedar afectadas **y** se usan como **centros de evacuados** | Mapa Educativo Nacional |
-| Hospitales y centros de salud | Atención durante la emergencia | REFES / OSM |
-| Centros de evacuados | Si se inundan, el plan falla | A relevar con Defensa Civil y municipio |
+| Escuelas | Concentran chicos y personal; hoy salen de OSM (pendiente: Mapa Educativo Nacional) | OSM / Mapa Educativo Nacional |
+| Hospitales y centros de salud | Atención durante la emergencia | OSM / REFES |
+| Municipio y asistencia social | Edificios públicos y hogares | OSM |
 | Estaciones de bombeo | Si quedan fuera de servicio, se inunda el recinto | INA (tabla) / municipio / OSM |
-| Rutas, accesos y puentes | Aislamiento de barrios, acceso de ambulancias | IGN / OSM |
+| Calles | Cuántos km quedan con agua sobre el cordón o intransitables | OSM |
 | Energía y agua potable | Cortes de energía citados en temporales | OSM |
 | Viviendas y población | Cuántas personas hay en cada zona | Censo 2022 por radio |
 
 **Indicadores por escenario:**
 - Cantidad de escuelas, centros de salud y bombas expuestos, ordenados por **umbral de exposición**.
-- Población estimada en zonas a evaluar (radio censal × fracción del radio expuesta). **Es una estimación** y se rotula así.
-- Accesos cortados: si una escuela no se inunda pero queda aislada, también hay que marcarla.
+- Población estimada en zonas a evaluar (radio censal × fracción del radio expuesta). **Es una estimación** y se rotula así. Pendiente.
+- Calles con agua sobre el cordón e intransitables (km). Qué hacer con esa información (recorridos, traslados) es del desafío de evacuaciones (Equipo 3).
 
 ---
 
@@ -319,8 +345,6 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 - `rasterio`, `geopandas`, `shapely`: manejo de ráster y vectores.
 - `whitebox` o `pysheds`: hidrocondicionamiento, depresiones, HAND y acumulación de flujo.
-- **Google Earth Engine:** Sentinel-1, CHIRPS, JRC y Open Buildings.
-- `scikit-learn` / `xgboost`: modelo de susceptibilidad.
 - Salidas listas para web: **COG** o **PNG de terreno** para el MDE, **PMTiles** o **GeoJSON** para vectores, y **capas precalculadas por nivel de río** (por ejemplo, cada 10 cm de 6 a 11 m) para que la demo sea instantánea.
 
 ### Visualización web 3D
@@ -332,7 +356,7 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 | Three.js puro | Control total del estilo "holograma" (bloom, shaders) | Hay que programar georreferenciación y cámara a mano |
 | Hightopo HT for Web (la del video) | Look espectacular de fábrica | **Comercial** y cerrada. No la recomendamos |
 
-**Recomendación:** **MapLibre GL JS + deck.gl**, con una **capa personalizada de Three.js** para efectos (agua animada, bloom y haces de luz sobre escuelas y hospitales). Para una ciudad, un mapa liviano de vectores alcanza y sobra. Cesium tiene sentido si después se quiere escalar a toda la provincia o cargar modelos 3D Tiles.
+**Decisión tomada:** el prototipo usa **Three.js puro** (TypeScript + Vite + React), con el terreno, el agua y la cámara programados a mano. La tabla queda como registro de las opciones evaluadas.
 
 **Receta de la estética "holográfica":**
 - Mapa base oscuro y edificios extruidos con bordes cian (alturas de Open Buildings 2.5D).
@@ -347,10 +371,16 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 ## 11. Dónde entra la IA (y dónde no)
 
-**Sí:**
-- **Susceptibilidad aprendida:** clasificador (Random Forest o XGBoost) entrenado con manchas de agua reales de Sentinel-1 (por ejemplo, 2015-16 y 2026) y variables como altura, HAND, pendiente, distancia al río o riacho, uso del suelo, impermeabilización y si la zona está dentro o fuera de la defensa. La literatura reciente usa justamente Sentinel-1 en Earth Engine y modelos de árboles para mapear susceptibilidad en ciudades con pocos datos.
-- **Explicabilidad:** SHAP para mostrar **por qué** una zona tiene prioridad alta.
-- **Asistente en lenguaje natural (opcional):** "¿Qué escuelas quedan expuestas con el río a 8,5 m?" → consulta a los datos precalculados. **Nunca** inventa números: solo lee lo que calculó el modelo.
+**Qué tecnología usa hoy el prototipo:**
+- **Simulación física**, no IA: un modelo hidráulico 2D (inercia local, base de LISFLOOD-FP) que hace llover sobre el terreno y mueve el agua celda por celda. Es explicable y cada supuesto está a la vista.
+- **IA en los datos:** el terreno es **FABDEM**, un modelo satelital al que un algoritmo de aprendizaje automático le quitó edificios y árboles. Los edificios son de **Microsoft Building Footprints**, detectados con aprendizaje profundo sobre imágenes.
+
+**Posible agregado (opcional):**
+- **Asistente en lenguaje natural:** "¿Qué escuelas quedan expuestas con el río a 8,5 m?" → consulta los resultados ya calculados. **Nunca** inventa números: solo lee lo que calculó el modelo.
+
+**Descartado:**
+- Entrenar un modelo con imágenes satelitales (Sentinel-1): es el terreno del Equipo 1.
+- Clasificar o agrupar avisos de vecinos: es el terreno del Equipo 4.
 
 **No:**
 - La IA **no predice** el nivel del río. Eso es del INA.
@@ -358,17 +388,17 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 ---
 
-## 12. Borrador: las 7 preguntas de la consigna
+## 12. Las 7 preguntas de la consigna (según el prototipo actual)
 
-| # | Pregunta | Borrador de respuesta |
+| # | Pregunta | Respuesta |
 |---|---|---|
-| 01 | ¿Quién la usaría? | Operador o técnico de Defensa Civil o del municipio que prepara la respuesta ante una crecida o temporal |
-| 02 | ¿Qué necesidad atiende? | Saber **qué infraestructura crítica revisar primero** según qué tan alto llegue el río o cuánto llueva |
-| 03 | ¿Función principal? | Mover el **nivel del río y la lluvia** y ver en 3D las zonas y los edificios críticos a evaluar, ordenados por prioridad |
-| 04 | ¿Qué datos y de dónde? | INA, SMN, MDE-Ar o FABDEM, Mapa Educativo, REFES, OSM, Censo 2022, Sentinel-1 y mapas CONAE 2016 (sección 7) |
-| 05 | ¿Qué se muestra al jurado? | "Subo el río de 5,5 m (hoy) a 8,30 m (evacuación) → aparecen las escuelas y centros de salud que quedan expuestos, en orden, con sus supuestos visibles" |
-| 06 | ¿Qué no podemos asegurar? | Qué manzana se inunda ni en cuánto tiempo. No conocemos los desagües ni el estado de las bombas. Error del MDE ~2 m (sección 13) |
-| 07 | ¿Por qué IA o tecnología? | Junta en segundos datos que hoy están dispersos. La IA aprende de inundaciones reales de Formosa y explica por qué prioriza. El 3D hace entendible el riesgo para quien no es técnico |
+| 01 | ¿Quién la usaría? | Operador o técnico de Defensa Civil o del municipio que prepara la respuesta ante un temporal o una crecida |
+| 02 | ¿Qué necesidad atiende? | Saber **qué calles, barrios e instalaciones revisar primero** según cuánto llueva y qué tan alto esté el río |
+| 03 | ¿Función principal? | Elegir un escenario (lluvia + río), **hacer llover** sobre un mapa 3D de Formosa Capital y ver el **orden** en que se afectan calles, barrios e infraestructura, con los supuestos a la vista |
+| 04 | ¿Qué datos y de dónde? | Río: Prefectura/INA (parte provincial del 17/11/2026) y niveles de alerta y evacuación del INA. Lluvia: escenarios declarados y pronóstico a 7 días (Open-Meteo, estimado). Terreno: FABDEM. Calles, barrios e instalaciones: OpenStreetMap. Edificios: Microsoft Building Footprints. Defensa: dato oficial provincial de 2015 |
+| 05 | ¿Qué se muestra al jurado? | "Elijo el Nivel 2 (105 mm con el río en alerta), toco Hacer llover y en dos minutos aparecen, en orden, las calles intransitables, los barrios y las escuelas y centros de salud que se mojan primero. Después subo el río a 1983 y activo la rotura de la defensa" |
+| 06 | ¿Qué no podemos asegurar? | Qué manzana se inunda ni a qué hora: el terreno tiene 1–2 m de error y no conocemos los desagües ni el estado de las bombas. La escala del río mide un solo punto. El listado de OSM puede tener faltantes (sección 13) |
+| 07 | ¿Por qué IA o tecnología? | La simulación física junta en segundos terreno, río, lluvia y edificios que hoy están dispersos, y la hace entendible en 3D para quien no es técnico. La IA está en los datos (terreno sin edificios con FABDEM, huellas de edificios detectadas con aprendizaje profundo). Cada número se explica y no se inventan categorías |
 
 ---
 
@@ -378,33 +408,33 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 - **Escala puntual:** la altura del río se mide en un punto (el puerto), y el agua no sube igual en toda la costa.
 - **Defensa y bombas:** se asume que la defensa funciona salvo que el operador active "falla". El estado real de las bombas no es público en tiempo real.
 - **Desagües pluviales:** no hay datos públicos de la red, así que la capa pluvial es **indicativa**.
-- **Tiempo:** el modelo no da tiempos de llegada del agua, solo **orden de exposición** por nivel.
-- **Datos de exposición:** padrón escolar de 2023 y REFES con fecha. Pueden faltar o sobrar establecimientos.
-- **IA:** pocos eventos etiquetados, riesgo de sobreajuste. Se valida con un evento que el modelo no vio.
-- **Horizonte temporal:** los escenarios son **hipotéticos e instantáneos**, no un pronóstico. El pronóstico oficial es del INA y del SMN.
+- **Tiempo:** los minutos de llegada del agua sirven para **ordenar**, no para planificar al minuto.
+- **Datos de exposición:** la infraestructura sale de OpenStreetMap (consulta del 19/11/2026). Pueden faltar o sobrar establecimientos.
+- **Escala del INA:** el INA no publica los límites de sus categorías en metros, así que solo se muestran categorías de lecturas reales.
+- **Horizonte temporal:** el río es un valor fijo durante la simulación (horas) y la lluvia dura lo que declara el escenario. El escenario «7 días» toma un pronóstico estimado y supone que se concentra en 3 h. No es un pronóstico: el pronóstico oficial es del INA y del SMN.
 
 ---
 
 ## 14. Decisiones pendientes del equipo
 
-- [ ] ¿El foco es **fluvial** (río), **pluvial** (lluvia) o **ambos**? Recomendado: arrancar por el fluvial, que tiene mejores datos.
+- [x] Foco: **ambos** (lluvia y río combinados).
+- [x] MDE: **FABDEM** (con Copernicus de respaldo).
+- [x] Motor 3D: **Three.js**.
 - [ ] ¿Área de estudio: solo el ejido urbano o también el periurbano (islas, laguna Oca)?
-- [ ] MDE final: MDE-Ar v2.1, FABDEM o MDE 5 m del IGN (si existe para Formosa).
-- [ ] Motor 3D: MapLibre + deck.gl (recomendado) o Cesium.
 - [ ] ¿Incluimos la pirámide de Pepper's ghost para la demo?
-- [ ] ¿Contactamos a Defensa Civil o al municipio para validar los barrios críticos y la ubicación de los centros de evacuados?
+- [ ] ¿Contactamos a Defensa Civil o al municipio para validar los barrios críticos?
+- [ ] ¿Sumamos el asistente en lenguaje natural sobre los resultados (sección 11)?
 
 ---
 
 ## 15. Próximos pasos
 
-1. Conseguir el **cero de escala IGN de Puerto Formosa** (repositorio del INA).
-2. Bajar la **serie histórica del río** en Puerto Formosa (INA a5) y calcular los niveles por frecuencia (escala INA 1991–2020).
-3. Descargar el MDE (MDE-Ar y FABDEM) y recortarlo a Formosa Capital.
-4. Conseguir los mapas de **CONAE de enero de 2016** y la mancha de Sentinel-1 de esa crecida para validar.
-5. Armar la capa de **infraestructura crítica** (escuelas, salud, bombas) y cruzarla con el Censo 2022.
-6. Prototipo mínimo: mapa 3D + control de nivel del río + lista de infraestructura expuesta.
-7. Transcribir la **tabla de estaciones de bombeo** del informe INA.
+1. Confirmar con el INA el **cero de escala IGN de Puerto Formosa** (hoy 47,30 m, deducido del dato provincial de 2015).
+2. Conseguir los límites en metros de las **categorías del INA** para Puerto Formosa (o la serie 1991–2020 para calcularlos) y así clasificar también las alturas hipotéticas.
+3. Reemplazar las escuelas de OSM por el **Mapa Educativo Nacional** y sumar población del **Censo 2022** por radio censal.
+4. Validar por fuera de la app contra los mapas de **CONAE de enero de 2016**.
+5. Transcribir la **tabla de estaciones de bombeo** del informe INA.
+6. Antes de la presentación, actualizar el dato observado con el último parte del INA o de la provincia.
 
 ---
 
@@ -412,6 +442,10 @@ Tipos según la guía: **OBS** = observado, **EST** = estimado, **REF** = refere
 
 **Del desafío**
 - CITF – *Operación Agua, Equipo 2, Desafío 3: Predicción de afectaciones*, guía v1.1, noviembre de 2026 (PDF entregado al equipo).
+
+**Partes oficiales recibidos (PDF)**
+- Ministerio de la Producción y Ambiente de Formosa, Subsecretaría de Producción Sustentable – *Situación hídrica y agroambiental*, 17/11/2026.
+- Dirección Nacional de Política Hídrica y Coordinación Federal – *Boletín El Niño N°8*, 22/10/2026 (SMN, INA, CTN, COREBE).
 
 **Hidrología y crecidas en Formosa**
 - INA – Alerta Hidrológico: https://www.ina.gob.ar/alerta/ · Reporte diario: https://alerta.ina.gob.ar/a5/diario/reporte_diario

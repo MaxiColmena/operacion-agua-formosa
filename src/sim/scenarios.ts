@@ -22,12 +22,32 @@ export const ASSUMPTIONS: Assumptions = {
 };
 
 export const RIVER_REF = {
-  observed: { stage: 4.81, date: '17/11/2026', source: 'Prefectura Naval / INA vía Agrofy', trend: 'bajando' },
+  observed: {
+    stage: 4.96, date: '17/11/2026', trend: 'estable',
+    // Categoría tal como la informa la fuente (escala de 5 categorías del INA, frecuencias 1991–2020).
+    inaCategory: 'aguas medias',
+    source: 'Parte «Situación hídrica y agroambiental» de la Subsecretaría de Producción Sustentable de Formosa (alturas de Prefectura Naval e INA)',
+  },
   alert: 7.8,
   evacuation: 8.3,
-  lowWater: 1.6,
   record1983: 10.73,
 };
+
+/**
+ * Escala del INA: cinco categorías por frecuencia en 1991–2020 (aguas bajas, medias bajas, medias,
+ * medias altas, altas). El INA no publica sus límites en metros: solo informa la categoría de cada
+ * lectura. Por eso NO clasificamos alturas hipotéticas: mostramos lecturas reales ya clasificadas por el INA.
+ */
+export const INA_SCALE = ['aguas bajas', 'aguas medias bajas', 'aguas medias', 'aguas medias altas', 'aguas altas'] as const;
+export const INA_CATEGORY_REF: { stage: number; cat: string; date: string; source: string }[] = [
+  { stage: 2.87, cat: 'aguas medias bajas', date: 'nov. 2025', source: 'Reporte diario INA' },
+  { stage: 4.05, cat: 'aguas medias', date: 'jul. 2026', source: 'Reporte diario INA' },
+  { stage: 4.49, cat: 'aguas medias', date: 'jun. 2026', source: 'Reporte diario INA' },
+  { stage: 4.96, cat: 'aguas medias', date: '17/11/2026', source: 'Parte provincial (Prefectura / INA)' },
+];
+
+/** Pronóstico de lluvia a 7 días para el departamento Formosa (ESTIMADO, Open-Meteo, emitido el 17/11/2026). */
+export const RAIN_FORECAST_7D = { meanMm: 129, maxMm: 150, issued: '17/11/2026', source: 'Open-Meteo vía parte provincial del 17/11/2026' };
 
 export interface NamedScenario extends Scenario {
   id: string;
@@ -42,8 +62,8 @@ export interface NamedScenario extends Scenario {
 export const LEVELS: NamedScenario[] = [
   {
     id: 'n1', short: 'Nivel 1', label: 'Lluvia fuerte',
-    rainMmH: 40, rainHours: 1, riverStage: 4.81, drainMmH: 15, defenseFails: false, afterHours: 1,
-    why: '40 mm en 1 h con el río como hoy (4,81 m). Tormenta de verano frecuente.',
+    rainMmH: 40, rainHours: 1, riverStage: 4.96, drainMmH: 15, defenseFails: false, afterHours: 1,
+    why: '40 mm en 1 h con el río como el 17/11/2026 (4,96 m, aguas medias). Tormenta de verano frecuente.',
   },
   {
     id: 'n2', short: 'Nivel 2', label: 'Temporal severo',
@@ -59,6 +79,11 @@ export const LEVELS: NamedScenario[] = [
 
 export const PRESETS: NamedScenario[] = [
   ...LEVELS,
+  {
+    id: 'p7d', short: '7 días', label: 'Pronóstico concentrado',
+    rainMmH: 50, rainHours: 3, riverStage: 4.96, drainMmH: 10, defenseFails: false, afterHours: 1,
+    why: 'Horizonte de 7 días: el pronóstico (ESTIMADO, Open-Meteo, 17/11/2026) da 129 mm de promedio y hasta 150 mm en el departamento Formosa. SUPUESTO del escenario: ese máximo cae en una sola tormenta de 3 h, con el río como hoy (4,96 m) y desagüe reducido a 10 mm/h porque el 67 % del suelo provincial está húmedo o muy húmedo (Sentinel-1, 16/09–31/10).',
+  },
   {
     id: 'h1983', short: 'Histórico', label: 'Crecida 1983 + lluvia',
     rainMmH: 50, rainHours: 2, riverStage: 10.73, drainMmH: 15, defenseFails: false, afterHours: 1,

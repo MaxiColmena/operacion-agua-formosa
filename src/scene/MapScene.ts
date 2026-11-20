@@ -39,7 +39,7 @@ const STATUS_COLOR: Record<FacilityStatus, THREE.Color> = {
 
 /** Altura (km) del poste de cada instalación en estado seco: marcadores bajos y discretos. */
 const CAT_HEIGHT: Record<string, number> = {
-  hospital: 0.09, salud: 0.065, escuela: 0.045, seguridad: 0.05, servicios: 0.055, refugio: 0.05, transporte: 0.05,
+  hospital: 0.09, salud: 0.065, escuela: 0.045, seguridad: 0.05, servicios: 0.055, publico: 0.05, transporte: 0.05,
 };
 /** Tamaño relativo del marcador por categoría (los hospitales algo mayores). */
 const CAT_SIZE: Record<string, number> = { hospital: 1.45, salud: 1.15 };
