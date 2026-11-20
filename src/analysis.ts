@@ -5,6 +5,7 @@ import { MASK_RIVER, MASK_WATER } from './sim/engine';
 import type { FacilityStatus } from './scene/MapScene';
 import { streetDepth } from './scene/MapScene';
 import { STREET } from './sim/scenarios';
+import { overflowElevation, overflowStage } from './sim/exposure';
 
 export interface SimGridInfo {
   width: number;
@@ -20,6 +21,39 @@ export interface FacilityInfo extends Facility {
   cells: number[]; // celdas de la grilla de simulación alrededor (radio ~60 m)
   tier: Tier;
   tierByRiver: boolean;
+  /** Altura del río (m, escala de Puerto Formosa) desde la que queda conectada al agua, con defensa sana. */
+  riverStage: number;
+  /** Lo mismo si falla la defensa. */
+  riverStageFail: number;
+}
+
+/** Umbral de exposición al río de cada celda de la grilla completa (m de escala), con y sin defensa. */
+export interface ExposureGrid {
+  normal: Float32Array;
+  fail: Float32Array;
+}
+
+export function computeExposure(data: AppData, gaugeZero: number, defenseCrest: number): ExposureGrid {
+  const { width: w, height: h } = data.meta;
+  return {
+    normal: overflowStage(overflowElevation(w, h, data.z, data.mask, defenseCrest), gaugeZero),
+    fail: overflowStage(overflowElevation(w, h, data.z, data.mask, null), gaugeZero),
+  };
+}
+
+/** Mínimo del umbral en las celdas vecinas (radio en celdas de 30 m): el agua que llega "a la puerta". */
+function stageAt(g: Float32Array, data: AppData, cx: number, cy: number, r: number) {
+  const { width: w, height: h } = data.meta;
+  let best = Infinity;
+  for (let dy = -r; dy <= r; dy++)
+    for (let dx = -r; dx <= r; dx++) {
+      const x = Math.floor(cx) + dx, y = Math.floor(cy) + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const i = y * w + x;
+      if (data.mask[i] & (MASK_RIVER | MASK_WATER)) continue;
+      if (g[i] < best) best = g[i];
+    }
+  return best;
 }
 
 export interface BarrioInfo {
@@ -61,7 +95,7 @@ function tierAt(data: AppData, cx: number, cy: number, r: number): { tier: Tier;
   return { tier: best, river };
 }
 
-export function prepareFacilities(data: AppData, sim: SimGridInfo): FacilityInfo[] {
+export function prepareFacilities(data: AppData, sim: SimGridInfo, exposure: ExposureGrid | null = null): FacilityInfo[] {
   if (!data.osm) return [];
   return data.osm.facilities.map((f) => {
     const [cx, cy] = lonLatToCell(data.meta, f.lon, f.lat);
@@ -73,8 +107,19 @@ export function prepareFacilities(data: AppData, sim: SimGridInfo): FacilityInfo
         if (x >= 0 && y >= 0 && x < sim.width && y < sim.height) cells.push(y * sim.width + x);
       }
     const t = tierAt(data, cx, cy, 1);
-    return { ...f, cells, tier: t.tier, tierByRiver: t.river };
+    return {
+      ...f, cells, tier: t.tier, tierByRiver: t.river,
+      riverStage: exposure ? stageAt(exposure.normal, data, cx, cy, 1) : Infinity,
+      riverStageFail: exposure ? stageAt(exposure.fail, data, cx, cy, 1) : Infinity,
+    };
   });
+}
+
+/** Texto del umbral de exposición al río. */
+export function fmtStage(s: number) {
+  if (!Number.isFinite(s) || s > 30) return 'el río no la alcanza';
+  if (s <= 0) return 'expuesta al río con cualquier nivel';
+  return `expuesta al río desde ${s.toFixed(2).replace('.', ',')} m`;
 }
 
 /** Asigna cada celda al barrio (punto OSM) más cercano dentro de 1,2 km: aproximación tipo Voronoi. */

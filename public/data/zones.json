@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-19T18:53:17.585Z",
+  "generated": "2026-11-20T02:31:24.770Z",
   "resolution": "30 m",
   "threshold": 0.15,
   "levels": [
@@ -7,7 +7,7 @@
       "id": "n1",
       "short": "Nivel 1",
       "label": "Lluvia fuerte",
-      "why": "40 mm en 1 h con el río como hoy (4,81 m). Tormenta de verano frecuente."
+      "why": "40 mm en 1 h con el río como hoy (4,70 m, INA 19/11/2026). Tormenta de verano frecuente."
     },
     {
       "id": "n2",
@@ -25,18 +25,18 @@
   "stats": [
     {
       "id": "n1",
-      "km2": 3.09,
-      "seconds": 34
+      "km2": 3.83,
+      "seconds": 37
     },
     {
       "id": "n2",
-      "km2": 56.73,
-      "seconds": 67
+      "km2": 71.53,
+      "seconds": 60
     },
     {
       "id": "n3",
-      "km2": 82.97,
-      "seconds": 88
+      "km2": 91.23,
+      "seconds": 81
     }
   ]
 }

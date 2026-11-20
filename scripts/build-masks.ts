@@ -2,6 +2,7 @@
 // Salida: public/data/masks.bin (Uint8, bits: 1 = río, 2 = defensa, 4 = agua permanente).
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { OUT_DIR } from './config';
+import { DEFENSA_REAL } from '../src/sim/defensa-formosa';
 
 const meta = JSON.parse(readFileSync(`${OUT_DIR}/terrain.json`, 'utf8'));
 const z = new Float32Array(readFileSync(`${OUT_DIR}/terrain.bin`).buffer.slice(0));
@@ -80,6 +81,9 @@ if (existsSync(`${OUT_DIR}/osm.json`)) {
     else if (l.kind === 'river' || l.kind === 'canal') drawLine(l.c, WATER, 0);
   }
 }
+// Anillo de defensa: traza aproximada (tramos reales de OSM + conectores estimados, ver src/sim/defensa-formosa.ts).
+// Se dibuja cerrado. El agua se mueve solo entre vecinas de lado, así que una línea de 1 celda alcanza.
+drawLine([...DEFENSA_REAL, DEFENSA_REAL[0]], DEFENSE, 0);
 // Cauce: polígonos de río conectados al cauce principal (por debajo de 53 m) pasan a ser río Paraguay;
 // el resto de los polígonos de río (riachos altos) queda como agua permanente.
 {

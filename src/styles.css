@@ -70,6 +70,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hint { font-size: 11px; color: var(--muted); margin: 4px 0 8px; line-height: 1.45; }
 .hint.warn { color: var(--warn); }
 .why { font-size: 12px; color: var(--text); opacity: 0.85; margin: 10px 0 4px; line-height: 1.45; }
+.why.assumption { font-size: 11px; color: var(--muted); opacity: 1; padding: 6px 8px; border-left: 2px solid var(--user); background: rgba(177, 140, 255, 0.06); border-radius: 4px; }
 
 .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .preset {
@@ -142,6 +143,8 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 .filters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .filters button { padding: 3px 8px; font-size: 11px; border-radius: 999px; background: none; border: 1px solid var(--line); color: var(--muted); }
 .filters button.on { color: var(--text); border-color: var(--cyan); }
+.filters.sort { align-items: center; }
+.filters.sort span { font-size: 11px; color: var(--muted); margin-right: 2px; }
 .list { list-style: none; padding: 0; margin: 0; flex: 1; overflow-y: auto; min-height: 120px; }
 .list::-webkit-scrollbar { width: 6px; }
 .list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
@@ -258,5 +261,19 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
 @media (max-width: 1100px) {
   .panel.right { width: 300px; }
   .panel.left { width: 280px; }
-  .sources .tag-user { display: none; }
+  /* Las tres etiquetas (observado, previsión, escenario) quedan siempre visibles, como pide la guía. */
+  .sources .tag { font-size: 10px; padding: 4px 8px; }
 }
+
+/* ---------- prioridad por población ---------- */
+.legend i.grad-prio { width: 34px; background: linear-gradient(90deg, #ffd940, #ff801a, #ff1f33, #ff33d9); }
+.prio-help .filters { margin-top: 8px; }
+.list-help.warn { color: var(--warn); }
+.list li.prio { align-items: center; }
+.list li.prio .rank { width: 22px; flex: none; text-align: right; color: var(--cyan); font-size: 12px; font-weight: 700; }
+.list li.prio .bar { display: block; height: 3px; margin-top: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.list li.prio .bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff801a, #ff1f33, #ff33d9); }
+.barrio-card { width: 380px; max-height: calc(100vh - 200px); overflow-y: auto; }
+.barrio-card .prio-rank { margin: -4px 0 10px; font-size: 12px; color: var(--muted); }
+.barrio-card .prio-rank b { color: var(--bad); font-size: 14px; }
+.modal table.checklist td:first-child { color: var(--obs); font-weight: 700; width: 18px; }

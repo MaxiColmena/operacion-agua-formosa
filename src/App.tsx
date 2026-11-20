@@ -3,11 +3,20 @@ import { loadAll, type AppData, type FacilityCat } from './data/load';
 import { DEFAULT_EXAG, EXAG_MAX, EXAG_MIN, MapScene, type Layers, type WaterMode } from './scene/MapScene';
 import type { WorkerIn, WorkerOut, SimStats } from './sim/worker';
 import type { Scenario } from './sim/engine';
-import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS, STREET } from './sim/scenarios';
+import { ASSUMPTIONS, PRESETS, RIVER_REF, LEVELS, STREET, FORECAST_INA, CATEGORIES_INA, UNCERTAINTY, RISE_REF, daysToRise } from './sim/scenarios';
+import { longitudKm } from './sim/defensa-formosa';
 import {
-  evalBarrios, evalFacilities, evalStreets, fmtTime, prepareBarrios, prepareFacilities, prepareStreets,
-  type BarrioInfo, type BarrioLive, type FacilityInfo, type FacilityLive, type StreetLive, type StreetSamples, type Tier,
+  computeExposure, evalBarrios, evalFacilities, evalStreets, fmtStage, fmtTime, prepareBarrios,
+  prepareFacilities, prepareStreets,
+  type BarrioInfo, type BarrioLive, type FacilityInfo, type FacilityLive, type StreetLive,
+  type StreetSamples, type Tier,
 } from './analysis';
+import {
+  censusToSim, exposedProfile, groupLive, groupPriority, heatValues, pct, priorityCells, roughCount, simTiers,
+  vulnerabilityShares, IVS_MAX, IVS_MIN, URGENCY,
+  type CensusGrid, type Profile, type ZoneLive, type ZonePriority,
+} from './priority';
+import { validate, type ValidationRow } from './validation';
 
 const SIM_FACTOR = 2; // celdas de ~60 m en vivo
 
@@ -19,6 +28,9 @@ const CAT_ICON: Record<FacilityCat, string> = {
   hospital: '✚', salud: '+', escuela: '▲', seguridad: '◆', servicios: '⚡', refugio: '⌂', transporte: '✈',
 };
 const TIER_LABEL = ['—', '1º', '2º', '3º'];
+/** Rango del control del río (m en la escala de Puerto Formosa). */
+const RIVER_MIN = 1.5, RIVER_MAX = 12.5;
+const fmtM = (v: number) => v.toFixed(2).replace('.', ',');
 
 export default function App() {
   const [data, setData] = useState<AppData | null>(null);
@@ -27,10 +39,10 @@ export default function App() {
   const [presetId, setPresetId] = useState<string | null>('n2');
   const [stats, setStats] = useState<SimStats | null>(null);
   const [speed, setSpeed] = useState(900);
-  const [layers, setLayers] = useState<Layers>({ water: true, zones: false, buildings: true, lines: true, labels: true, facilities: true });
+  const [layers, setLayers] = useState<Layers>({ water: true, zones: false, buildings: true, lines: true, labels: true, facilities: true, priority: true });
   const [waterMode, setWaterMode] = useState<WaterMode>('depth');
   const [exag, setExag] = useState(DEFAULT_EXAG);
-  const [tab, setTab] = useState<'barrios' | 'infra' | 'calles'>('calles');
+  const [tab, setTab] = useState<'prioridad' | 'barrios' | 'infra' | 'calles'>('prioridad');
   const [streets, setStreets] = useState<StreetLive | null>(null);
   const streetRef = useRef<StreetSamples | null>(null);
   const [facLive, setFacLive] = useState<FacilityLive[]>([]);
@@ -42,6 +54,14 @@ export default function App() {
   const [bld, setBld] = useState({ wet: 0, near: 0 });
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   const [freeCam, setFreeCam] = useState({ active: false, speed: 1 });
+  const [pop, setPop] = useState<Profile | null>(null);
+  const cgRef = useRef<CensusGrid | null>(null);
+  const [census, setCensus] = useState<CensusGrid | null>(null);
+  const [barPrio, setBarPrio] = useState<ZonePriority[]>([]);
+  const [barPrioLive, setBarPrioLive] = useState<ZoneLive[]>([]);
+  const [prioMode, setPrioMode] = useState<'plan' | 'escenario'>('plan');
+  const [selBarrio, setSelBarrio] = useState<number | null>(null);
+  const [infraSort, setInfraSort] = useState<'llegada' | 'rio'>('llegada');
 
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -73,8 +93,20 @@ export default function App() {
         simMaskRef.current = m.mask;
         scene.initWater(m.width, m.height, m.zEff);
         const info = { width: m.width, height: m.height, factor: SIM_FACTOR, mask: m.mask };
-        facRef.current = prepareFacilities(data, info);
+        // Umbral de exposición al río (priority-flood sobre la grilla de 30 m, con y sin defensa).
+        const exposure = computeExposure(data, ASSUMPTIONS.gaugeZero, ASSUMPTIONS.defenseCrest);
+        facRef.current = prepareFacilities(data, info, exposure);
         barRef.current = prepareBarrios(data, info);
+        // Prioridad por población (Censo 2022): personas × urgencia (zona 1º/2º/3º) × vulnerabilidad.
+        const cg = censusToSim(data, info);
+        cgRef.current = cg;
+        setCensus(cg);
+        if (cg) {
+          const tiers = simTiers(data, info);
+          const cellScore = priorityCells(cg, tiers);
+          scene.setPriorityHeat(heatValues(cellScore), m.width, m.height);
+          setBarPrio(groupPriority(barRef.current.map((b) => b.cells), cg, tiers, cellScore));
+        }
         setFacilities(facRef.current);
         setBarrios(barRef.current);
         streetRef.current = scene.urbanCell ? prepareStreets(data, info, scene.urbanCell) : null;
@@ -92,6 +124,11 @@ export default function App() {
           setFacLive(fl);
           setBarLive(bl);
           if (streetRef.current) setStreets(evalStreets(streetRef.current, m.d));
+          const cg = cgRef.current;
+          if (cg) {
+            setPop(exposedProfile(cg, m.d, ASSUMPTIONS.wetThreshold));
+            setBarPrioLive(groupLive(barRef.current.map((b) => b.cells), cg, m.d, m.tWet, m.byRiver, ASSUMPTIONS.wetThreshold, m.stats.time));
+          }
           const cells = scene.buildingSimCell;
           if (cells) {
             let wet = 0, near = 0;
@@ -154,9 +191,20 @@ export default function App() {
 
   const barrioRows = useMemo(() => barrios.map((b, i) => ({ b, l: barLive[i], i }))
     .sort((a, z) => rank(a.l?.firstAffected, a.b.tier) - rank(z.l?.firstAffected, z.b.tier)), [barrios, barLive]);
+  // Orden de prioridad de los barrios: en el plan (zonas 1º/2º/3º) o en el escenario que se está simulando.
+  const prioRows = useMemo(() => barrios.map((b, i) => ({ b, i, p: barPrio[i], l: barPrioLive[i] }))
+    .filter((r) => r.p && (prioMode === 'plan' ? r.p.score > 0 : (r.l?.score ?? 0) > 0))
+    .sort((a, z) => (prioMode === 'plan' ? z.p.score - a.p.score : (z.l?.score ?? 0) - (a.l?.score ?? 0))),
+  [barrios, barPrio, barPrioLive, prioMode]);
+  const prioMax = prioRows.length ? (prioMode === 'plan' ? prioRows[0].p.score : prioRows[0].l?.score ?? 1) : 1;
+  const stageOf = (f: FacilityInfo) => (scenario.defenseFails ? f.riverStageFail : f.riverStage);
   const facRows = useMemo(() => facilities.map((f, i) => ({ f, l: facLive[i], i }))
     .filter((r) => catFilter === 'todas' || r.f.cat === catFilter)
-    .sort((a, z) => rank(a.l?.firstWet, a.f.tier) - rank(z.l?.firstWet, z.f.tier)), [facilities, facLive, catFilter]);
+    .sort((a, z) => infraSort === 'rio'
+      ? stageOf(a.f) - stageOf(z.f)
+      : rank(a.l?.firstWet, a.f.tier) - rank(z.l?.firstWet, z.f.tier)),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [facilities, facLive, catFilter, infraSort, scenario.defenseFails]);
   const affectedCounts = useMemo(() => {
     const c = { afectado: 0, atencion: 0 };
     facLive.forEach((f) => { if (f.status !== 'seco') c[f.status]++; });
@@ -172,6 +220,9 @@ export default function App() {
 
   const rainMmMin = scenario.rainMmH / 60;
   const riverCat = scenario.riverStage >= RIVER_REF.evacuation ? 'evac' : scenario.riverStage >= RIVER_REF.alert ? 'alerta' : 'normal';
+  // El escenario se compara solo con los umbrales oficiales del INA: no se inventan categorías.
+  const riverRel = scenario.riverStage >= RIVER_REF.evacuation ? 'supera la evacuación INA (8,30 m)'
+    : scenario.riverStage >= RIVER_REF.alert ? 'supera la alerta INA (7,80 m)' : 'debajo de la alerta INA (7,80 m)';
   const sel = selected != null ? facilities[selected] : null;
   const selLive = selected != null ? facLive[selected] : null;
 
@@ -189,11 +240,15 @@ export default function App() {
           </div>
         </div>
         <div className="sources">
-          <span className="tag tag-obs" title={RIVER_REF.observed.source}>
-            OBSERVADO · río {RIVER_REF.observed.stage.toFixed(2)} m · {RIVER_REF.observed.date}
+          <a className="tag tag-obs" href={RIVER_REF.observed.url} target="_blank" rel="noreferrer" title={RIVER_REF.observed.source}>
+            OBSERVADO · {fmtM(RIVER_REF.observed.stage)} m · {RIVER_REF.observed.categoryINA} · INA {RIVER_REF.observed.date}
+          </a>
+          <a className="tag tag-ina" href={FORECAST_INA.url} target="_blank" rel="noreferrer" title={`${FORECAST_INA.text} ${FORECAST_INA.source}`}>
+            PREVISIÓN INA · ~{fmtM(FORECAST_INA.stage)} m ± {FORECAST_INA.margin.toFixed(1).replace('.', ',')} al {FORECAST_INA.until.slice(0, 5)}
+          </a>
+          <span className={`tag tag-user river-${riverCat}`} title="Escenario hipotético elegido por el usuario: no es un pronóstico">
+            ESCENARIO DEL USUARIO · río {fmtM(scenario.riverStage)} m · {riverRel}
           </span>
-          <a className="tag tag-ina" href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer">PREVISIÓN INA · consultar ↗</a>
-          <span className="tag tag-user">ESCENARIO DEL USUARIO · hipotético</span>
         </div>
       </header>
 
@@ -208,6 +263,11 @@ export default function App() {
           ))}
         </div>
         {preset && <p className="why">{preset.why}</p>}
+        <p className="why assumption">
+          <b>Supuesto del escenario:</b> {scenario.riverStage > RIVER_REF.observed.stage + 0.05 ? <>el río sube de {fmtM(RIVER_REF.observed.stage)} m (hoy) a {fmtM(scenario.riverStage)} m en ~{daysToRise(scenario.riverStage, RIVER_REF.observed.stage)} días (ritmo de oct. 2026, ~{RISE_REF.cmPerDay} cm/día) y se mantiene ahí;</> : <>el río se mantiene en {fmtM(scenario.riverStage)} m;</>} sobre ese río llueven{' '}
+          {(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm en {fmtHours(scenario.rainHours)}. Horizonte: {fmtHours(scenario.rainHours + 1)} simuladas.
+          Hipotético, no es un pronóstico · confianza baja.
+        </p>
 
         <section>
           <label className="row"><span>Lluvia</span><b className="mono">{scenario.rainMmH} mm/h</b></label>
@@ -226,20 +286,21 @@ export default function App() {
 
         <section>
           <label className="row"><span>Río Paraguay · Puerto Formosa</span><b className={`mono river-${riverCat}`}>{scenario.riverStage.toFixed(2)} m</b></label>
-          <input type="range" min={1.5} max={11.5} step={0.05} value={scenario.riverStage} onChange={(e) => update({ riverStage: +e.target.value })} />
+          <input type="range" min={RIVER_MIN} max={RIVER_MAX} step={0.05} value={scenario.riverStage} onChange={(e) => update({ riverStage: +e.target.value })} />
           <div className="scale">
             {[
               { v: RIVER_REF.observed.stage, t: 'hoy' },
               { v: RIVER_REF.alert, t: 'alerta' },
               { v: RIVER_REF.evacuation, t: 'evac.' },
               { v: RIVER_REF.record1983, t: '1983' },
+              { v: RIVER_REF.defenseStage, t: 'defensa' },
             ].map((m) => (
-              <button key={m.t} style={{ left: `${((m.v - 1.5) / 10) * 100}%` }} onClick={() => update({ riverStage: m.v })} title={`${m.v} m`}>
+              <button key={m.t} style={{ left: `${((m.v - RIVER_MIN) / (RIVER_MAX - RIVER_MIN)) * 100}%` }} onClick={() => update({ riverStage: m.v })} title={`${m.v} m`}>
                 <i />{m.t}
               </button>
             ))}
           </div>
-          <div className="hint">Cota supuesta del agua: {(ASSUMPTIONS.gaugeZero + scenario.riverStage).toFixed(1)} m s. n. m. Cambiar el río reinicia la simulación.</div>
+          <div className="hint">Cota supuesta del agua: {(ASSUMPTIONS.gaugeZero + scenario.riverStage).toFixed(1)} m IGN (cero de la escala {ASSUMPTIONS.gaugeZero.toFixed(2)} m). Cambiar el río reinicia la simulación.</div>
         </section>
 
         <section>
@@ -252,6 +313,7 @@ export default function App() {
             <input type="checkbox" checked={scenario.defenseFails} onChange={(e) => update({ defenseFails: e.target.checked })} />
             Falla de la línea de defensa
           </label>
+          <div className="hint">Anillo aproximado de {longitudKm().toFixed(1)} km (5 tramos de OSM + conectores estimados). Coronamiento oficial: {fmtM(RIVER_REF.defenseStage)} m en la escala (cota IGN 59 m, Gobierno de Formosa 2015).</div>
         </section>
 
         <div className="controls">
@@ -281,13 +343,20 @@ export default function App() {
           <Stat label="Calles con agua sobre el cordón" value={`${(streets?.curbKm ?? 0).toFixed(1)} km`} sub={`${(streets?.impassableKm ?? 0).toFixed(1)} km intransitables`} accent />
           <Stat label="Edificios con agua ≥ 15 cm" value={bld.wet.toLocaleString('es-AR')} sub={`${bld.near.toLocaleString('es-AR')} con agua cerca · de ${(data?.buildings?.count ?? 0).toLocaleString('es-AR')}`} accent />
           <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toFixed(1)} km²`} sub="estimado" />
+          {census && (
+            <Stat label="Personas en zonas con agua" value={`~${roughCount(pop?.poblacion ?? 0).toLocaleString('es-AR')}`}
+              sub={census.hasSocio && pop
+                ? `~${roughCount(pop.menores14).toLocaleString('es-AR')} niños ≤ 14 · ~${roughCount(pop.mayores65).toLocaleString('es-AR')} mayores ≥ 65 · ~${roughCount(pop.hogaresNbi).toLocaleString('es-AR')} hogares con NBI · Censo 2022`
+                : 'Censo 2022, orden de magnitud'} accent />
+          )}
           <Stat label="Instalaciones" value={`${affectedCounts.afectado}`} sub={`afectadas · ${affectedCounts.atencion} en atención`} accent />
         </div>
 
         <div className="tabs">
+          <button className={tab === 'prioridad' ? 'on' : ''} onClick={() => setTab('prioridad')} title="Barrios ordenados por población, vulnerabilidad y orden de afectación">Prioridad</button>
           <button className={tab === 'calles' ? 'on' : ''} onClick={() => setTab('calles')}>Calles</button>
           <button className={tab === 'barrios' ? 'on' : ''} onClick={() => setTab('barrios')}>Barrios ({barrios.length})</button>
-          <button className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')}>Infraestructura ({facilities.length})</button>
+          <button className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')}>Infra ({facilities.length})</button>
         </div>
         {tab === 'calles' ? (
           <div className="street-sum">
@@ -297,10 +366,29 @@ export default function App() {
             <div className="c4"><b className="mono">{(streets?.dirtCurbKm ?? 0).toFixed(1)}</b><span>km de calles de tierra sobre el cordón</span></div>
             <p className="list-help">Calles con más kilómetros de agua sobre el cordón. Profundidad estimada: en zona urbana se supone que el agua de la manzana se junta en la calzada.</p>
           </div>
+        ) : tab === 'prioridad' ? (
+          <div className="prio-help">
+            <div className="filters sort">
+              <button className={prioMode === 'plan' ? 'on' : ''} onClick={() => setPrioMode('plan')} title="Zonas 1º, 2º y 3º precalculadas: sirve para planificar recursos">Plan (zonas 1º·2º·3º)</button>
+              <button className={prioMode === 'escenario' ? 'on' : ''} onClick={() => setPrioMode('escenario')} title="Agua de la simulación en curso">Escenario en curso</button>
+            </div>
+            <p className="list-help">
+              <b>Dónde actuar primero.</b> Puntaje = <b>personas</b> (Censo 2022) × <b>urgencia</b> ({prioMode === 'plan' ? `zona 1º ×${URGENCY[1]} · 2º ×${URGENCY[2]} · 3º ×${URGENCY[3]}` : 'agua que llegó antes ×3 · después ×2 · al final ×1'}) × <b>vulnerabilidad</b> (NBI, niños y mayores, sin cobertura de salud; 1 = promedio de la ciudad).
+              Un barrio chico que se afecta primero puede quedar abajo de uno denso y vulnerable. Ordena la evaluación: <b>no decide</b>.
+            </p>
+            {!census?.hasSocio && <p className="list-help warn">Falta el detalle sociodemográfico: se usa solo la población.</p>}
+          </div>
         ) : (
         <p className="list-help">Orden de afectación en esta simulación. <b>Nivel</b> = en qué escenario de referencia se afecta primero (1º lluvia fuerte · 2º temporal severo · 3º extremo).</p>
         )}
 
+        {tab === 'infra' && (
+          <div className="filters sort">
+            <span>Ordenar por</span>
+            <button className={infraSort === 'llegada' ? 'on' : ''} onClick={() => setInfraSort('llegada')}>llegada del agua</button>
+            <button className={infraSort === 'rio' ? 'on' : ''} onClick={() => setInfraSort('rio')} title="Altura del río desde la que queda conectada al agua">nivel del río que la alcanza</button>
+          </div>
+        )}
         {tab === 'infra' && (
           <div className="filters">
             {(['todas', 'hospital', 'salud', 'escuela', 'seguridad', 'servicios', 'refugio'] as const).map((c) => (
@@ -310,8 +398,25 @@ export default function App() {
         )}
 
         <ol className="list">
+          {tab === 'prioridad' && prioRows.map(({ b, i, p, l }, k) => {
+            const score = prioMode === 'plan' ? p.score : l?.score ?? 0;
+            const people = prioMode === 'plan' ? p.peopleByTier[0] + p.peopleByTier[1] + p.peopleByTier[2] : l?.people ?? 0;
+            const nbi = vulnerabilityShares(p.profile).nbi;
+            return (
+              <li key={i} className={`prio ${selBarrio === i ? 'sel' : ''}`} onClick={() => { setSelBarrio(i); setSelected(null); sceneRef.current?.focusLonLat(b.lon, b.lat); }}>
+                <span className="rank mono">{k + 1}</span>
+                <div className="li-main">
+                  <b>{b.name}</b>
+                  <span>~{roughCount(people).toLocaleString('es-AR')} personas {prioMode === 'plan' ? 'en zonas 1º-3º' : 'con agua'} · NBI {Math.round(nbi * 100)} % · vuln. ×{p.ivs.toFixed(2).replace('.', ',')}</span>
+                  <i className="bar"><i style={{ width: `${Math.max(3, (score / prioMax) * 100)}%` }} /></i>
+                </div>
+                <TierBadge t={b.tier} />
+              </li>
+            );
+          })}
+          {tab === 'prioridad' && !prioRows.length && <li className="empty">{prioMode === 'plan' ? 'Sin datos del censo o de las zonas.' : 'Todavía no hay agua en barrios poblados. Probá "Hacer llover".'}</li>}
           {tab === 'barrios' && barrioRows.map(({ b, l, i }) => (
-            <li key={i} className={`st-${l?.status ?? 'seco'}`} onClick={() => sceneRef.current?.focusLonLat(b.lon, b.lat)}>
+            <li key={i} className={`st-${l?.status ?? 'seco'}`} onClick={() => { setSelBarrio(i); setSelected(null); sceneRef.current?.focusLonLat(b.lon, b.lat); }}>
               <TierBadge t={b.tier} />
               <div className="li-main"><b>{b.name}</b><span>{l ? `${Math.round(l.share * 100)} % con agua` : ''}</span></div>
               <span className="mono time">{fmtTime(l?.firstAffected ?? -1)}</span>
@@ -320,8 +425,8 @@ export default function App() {
           {tab === 'infra' && facRows.map(({ f, l, i }) => (
             <li key={f.id} className={`st-${l?.status ?? 'seco'} ${selected === i ? 'sel' : ''}`} onClick={() => { setSelected(i); sceneRef.current?.focusFacility(i); }}>
               <TierBadge t={f.tier} />
-              <div className="li-main"><b><span className="icon">{CAT_ICON[f.cat]}</span>{f.name}</b><span>{CAT_LABEL[f.cat]}{l && l.status !== 'seco' ? ` · ${(l.depth * 100).toFixed(0)} cm` : ''}</span></div>
-              <span className="mono time">{fmtTime(l?.firstWet ?? -1)}</span>
+              <div className="li-main"><b><span className="icon">{CAT_ICON[f.cat]}</span>{f.name}</b><span>{CAT_LABEL[f.cat]}{l && l.status !== 'seco' ? ` · ${(l.depth * 100).toFixed(0)} cm` : ''} · {f.inside ? 'dentro' : 'fuera'} de la defensa</span></div>
+              <span className="mono time">{infraSort === 'rio' ? shortStage(stageOf(f)) : fmtTime(l?.firstWet ?? -1)}</span>
             </li>
           ))}
           {tab === 'calles' && streets?.top.map((t) => (
@@ -344,7 +449,17 @@ export default function App() {
           <small>{CAT_LABEL[facilities[hover.i].cat]}</small>
           <b>{facilities[hover.i].name}</b>
           <span>{statusText(facLive[hover.i])}{facilities[hover.i].tier ? ` · nivel ${TIER_LABEL[facilities[hover.i].tier]}` : ''}</span>
+          <span>{fmtStage(stageOf(facilities[hover.i]))}</span>
         </div>
+      )}
+
+      {selBarrio != null && !sel && barrios[selBarrio] && barPrio[selBarrio] && (
+        <BarrioCard
+          name={barrios[selBarrio].name} tier={barrios[selBarrio].tier} prio={barPrio[selBarrio]} live={barPrioLive[selBarrio]}
+          rank={[...barPrio].sort((a, z) => z.score - a.score).indexOf(barPrio[selBarrio]) + 1}
+          ranked={barPrio.filter((x) => x.score > 0).length} hasSocio={!!census?.hasSocio} source={data?.poblacion?.fuente ?? ''}
+          onClose={() => setSelBarrio(null)}
+        />
       )}
 
       {sel && (
@@ -357,14 +472,18 @@ export default function App() {
             <dt>Agua máx. cerca (±60 m)</dt><dd className="mono">{selLive ? `${(selLive.depth * 100).toFixed(0)} cm` : '—'}</dd>
             <dt>Primer contacto con agua</dt><dd className="mono">{fmtTime(selLive?.firstWet ?? -1)}{selLive?.byRiver ? ' · por el río' : ''}</dd>
             <dt>Nivel de referencia</dt><dd>{sel.tier ? `${TIER_LABEL[sel.tier]} (${LEVELS[sel.tier - 1].label})${sel.tierByRiver ? ' · por el río' : ''}` : 'No se afecta en los 3 escenarios'}</dd>
+            <dt>Umbral de exposición al río</dt><dd className="mono">{fmtStage(sel.riverStage)}{Number.isFinite(sel.riverStageFail) && sel.riverStageFail < sel.riverStage - 0.05 ? ` · con falla de defensa: ${fmtM(sel.riverStageFail)} m` : ''}</dd>
+            <dt>Defensa</dt><dd>{sel.inside ? 'Dentro del anillo' : 'Fuera del anillo'} (traza aproximada)</dd>
           </dl>
-          <p className="hint">Zona a evaluar, no veredicto: el MDE tiene ~2 m de error vertical. Fuente: OpenStreetMap.</p>
+          {sel.detail && <p className="hint">{sel.detail}</p>}
+          <p className="hint">Zona a evaluar, no veredicto: el MDE tiene 1 a 2 m de error vertical. Fuente: {sel.source ?? 'OpenStreetMap'}.</p>
         </div>
       )}
 
       <footer className="dock">
         <div className="layers">
           <Toggle on={layers.water} onClick={() => setLayers({ ...layers, water: !layers.water })}>Agua en vivo</Toggle>
+          <Toggle on={layers.priority} onClick={() => setLayers({ ...layers, priority: !layers.priority })}>Prioridad (población)</Toggle>
           <Toggle on={layers.zones} onClick={() => setLayers({ ...layers, zones: !layers.zones })}>Zonas 1º · 2º · 3º</Toggle>
           <Toggle on={layers.buildings} onClick={() => setLayers({ ...layers, buildings: !layers.buildings })}>Edificios</Toggle>
           <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}>Calles y riachos</Toggle>
@@ -393,7 +512,37 @@ export default function App() {
         </div>
       )}
 
-      {showInfo && <InfoModal data={data} onClose={() => setShowInfo(false)} />}
+      {showInfo && <InfoModal data={data} validation={barPrio.length ? validate(barrios, barPrio.map((x) => x.score)) : null} onClose={() => setShowInfo(false)} />}
+    </div>
+  );
+}
+
+function BarrioCard({ name, tier, prio, live, rank, ranked, hasSocio, source, onClose }: {
+  name: string; tier: Tier; prio: ZonePriority; live?: ZoneLive; rank: number; ranked: number; hasSocio: boolean; source: string; onClose: () => void;
+}) {
+  const p = prio.profile;
+  const n = (v: number) => `~${roughCount(v).toLocaleString('es-AR')}`;
+  return (
+    <div className="card barrio-card">
+      <button className="x" onClick={onClose}>×</button>
+      <small>Barrio · perfil del Censo 2022</small>
+      <h3>{name}</h3>
+      <p className="prio-rank">{prio.score > 0 ? <>Prioridad <b>{rank}º</b> de {ranked} barrios en el plan</> : 'Fuera de las zonas 1º, 2º y 3º'}{tier ? ` · se afecta en el nivel ${TIER_LABEL[tier]}` : ''}</p>
+      <dl>
+        <dt>Población</dt><dd className="mono">{n(p.poblacion)} personas · {n(p.hogares)} hogares</dd>
+        <dt>En zona 1º · 2º · 3º</dt><dd className="mono">{n(prio.peopleByTier[0])} · {n(prio.peopleByTier[1])} · {n(prio.peopleByTier[2])}</dd>
+        {live && <><dt>Con agua ahora</dt><dd className="mono">{n(live.people)} personas</dd></>}
+        {hasSocio && <>
+          <dt>Hogares con NBI</dt><dd className="mono">{pct(p.hogaresNbi, p.hogares)} ({n(p.hogaresNbi)})</dd>
+          <dt>Niños ≤ 14 · mayores ≥ 65</dt><dd className="mono">{n(p.menores14)} · {n(p.mayores65)}</dd>
+          <dt>Sin cobertura de salud</dt><dd className="mono">{pct(p.sinCobertura, p.poblacion)}</dd>
+          <dt>Hacinamiento crítico</dt><dd className="mono">{pct(p.hogaresHacinamiento, p.hogares)} de los hogares</dd>
+          <dt>Sin cloaca · sin agua de red</dt><dd className="mono">{pct(p.hogaresSinCloaca, p.hogares)} · {pct(p.hogaresSinAguaRed, p.hogares)}</dd>
+          <dt>Viviendas precarias</dt><dd className="mono">{n(p.viviendasPrecarias)} (rancho, casilla y similares)</dd>
+          <dt>Índice de vulnerabilidad</dt><dd className="mono">×{prio.ivs.toFixed(2).replace('.', ',')} (1 = promedio de la ciudad; entre {String(IVS_MIN).replace('.', ',')} y {IVS_MAX})</dd>
+        </>}
+      </dl>
+      <p className="hint">Barrio aproximado: celdas a menos de 1,2 km del punto del barrio en OpenStreetMap. Censo repartido parejo en cada radio. Fuente: {source}.</p>
     </div>
   );
 }
@@ -401,6 +550,10 @@ export default function App() {
 function rank(t: number | undefined, tier: Tier) {
   const live = t != null && t >= 0 ? t : 1e9;
   return live + (tier ? tier : 9) * 1e-3 + (live === 1e9 ? (tier || 9) * 1e7 : 0);
+}
+function shortStage(s: number) {
+  if (!Number.isFinite(s) || s > 30) return 'no llega';
+  return s <= 0 ? 'siempre' : `río ${fmtM(s)} m`;
 }
 function fmtHours(h: number) {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
@@ -429,6 +582,7 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
 function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
   return (
     <div className="legend">
+      {layers.priority && <span><i className="grad-prio" />prioridad baja → alta (población × urgencia × vulnerabilidad)</span>}
       {layers.zones && (<>
         <span><i style={{ background: '#ff2e47' }} />1º lluvia fuerte</span>
         <span><i style={{ background: '#ff8c1f' }} />2º temporal</span>
@@ -455,7 +609,9 @@ function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
   );
 }
 
-function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => void }) {
+function InfoModal({ data, validation, onClose }: {
+  data: AppData | null; validation: { rows: ValidationRow[]; ranked: number } | null; onClose: () => void;
+}) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -470,17 +626,27 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
           <li>El río Paraguay es un borde de nivel fijo. Las zonas conectadas al río por debajo de su nivel arrancan con agua ("bañadera conectada").</li>
           <li>El <b>relieve está exagerado</b> en altura (×{DEFAULT_EXAG} por defecto) para que se vean los bajos: Formosa es casi plana. Con el control «Relieve» del panel inferior se puede poner en 1× (escala real).</li>
           <li>Una celda está <b>afectada</b> cuando tiene 15 cm de agua o más. Un barrio está afectado cuando lo está al menos el 5 % de su superficie.</li>
+          <li><b>Umbral de exposición al río</b> de cada instalación: la altura del río desde la que queda conectada al agua (camino más bajo desde el cauce, <i>priority-flood</i>, con la defensa como barrera). Ordena "qué se afecta primero" en una crecida sin inventar tiempos.</li>
         </ul>
 
         <h3>Escenarios de referencia (zonas 1º, 2º y 3º)</h3>
         <ul>{LEVELS.map((l, i) => <li key={l.id}><b>{i + 1}º · {l.label}:</b> {l.why}</li>)}</ul>
         {data?.zonesMeta && <p className="hint">Superficie afectada: {data.zonesMeta.stats.map((s, i) => `${i + 1}º ${s.km2} km²`).join(' · ')} (acumulada por escenario).</p>}
 
+        <h3>Prioridad por población (Censo 2022)</h3>
+        <ul>
+          <li><b>Puntaje de cada celda</b> = personas que viven ahí × urgencia × índice de vulnerabilidad. El de un barrio es la suma de sus celdas.</li>
+          <li><b>Urgencia</b> (supuesto): zona 1º ×{URGENCY[1]}, 2º ×{URGENCY[2]}, 3º ×{URGENCY[3]}. En "escenario en curso", el agua que llegó en el primer tercio del tiempo simulado ×3, en el segundo ×2 y en el último ×1.</li>
+          <li><b>Índice de vulnerabilidad</b>: promedio de tres proporciones del radio censal (hogares con NBI, personas de hasta 14 o desde 65 años, personas sin obra social ni plan de salud), cada una dividida por la de toda la ciudad. 1 = promedio; se acota entre {String(IVS_MIN).replace('.', ',')} y {IVS_MAX}.</li>
+          <li>Así, un barrio alejado con pocas familias que se afecta primero puede quedar por debajo de un barrio denso y vulnerable que también se afecta. Sirve para <b>ordenar dónde evaluar y asignar recursos</b>; la decisión es de las autoridades.</li>
+        </ul>
+
         <h3>Supuestos declarados</h3>
         <table>
           <tbody>
-            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Estimado: superficie del río en el MDE (mediana 50,0 m) menos una altura típica de la escala (3,7 m). <b>Falta el dato oficial del INA.</b></td></tr>
-            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Supuesto (≈ 11,7 m de escala, por encima de 1983). Solo un tramo cerca del puerto está cargado en OpenStreetMap; el resto de los ~20 km no actúa como barrera.</td></tr>
+            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero.toFixed(2)} m IGN</td><td>Sale de la cota oficial de la defensa (Gobierno de Formosa, 08/12/2015): 59 m IGN = 11,70 m en el hidrómetro del puerto → 59 − 11,70. <b>Probable: confirmar con la tabla del INA.</b> Se supone que el MDE (EGM2008) y el IGN coinciden.</td></tr>
+            <tr><td>Defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m IGN</td><td>Coronamiento oficial (11,70 m en la escala). Traza aproximada de {longitudKm().toFixed(1)} km: 5 tramos reales de OpenStreetMap + conectores estimados por el equipo (los 15 km oficiales no están publicados como mapa). Con "falla" deja de actuar en todo el anillo.</td></tr>
+            <tr><td>Subida del río</td><td className="mono">~{RISE_REF.cmPerDay} cm/día</td><td>Para declarar en cuántos días se llegaría a la altura del escenario. {RISE_REF.source}. No es un pronóstico: el río puede subir más rápido o no subir.</td></tr>
             <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>No hay datos públicos de la red pluvial. Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
             <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
             <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
@@ -491,11 +657,74 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
         <h3>Datos utilizados</h3>
         <table>
           <tbody>
-            <tr><td><span className="tag tag-obs">OBSERVADO</span></td><td>Río Paraguay en Puerto Formosa: {RIVER_REF.observed.stage} m el {RIVER_REF.observed.date} ({RIVER_REF.observed.trend}). {RIVER_REF.observed.source}.</td></tr>
-            <tr><td><span className="tag tag-obs">REFERENCIA INA</span></td><td>Alerta {RIVER_REF.alert} m · Evacuación {RIVER_REF.evacuation} m (Puerto Formosa). Récord de 1983: {RIVER_REF.record1983} m.</td></tr>
-            <tr><td><span className="tag tag-ina">PREVISIÓN INA</span></td><td>No se integra en vivo. Consultar <a href="https://alerta.ina.gob.ar/a5/secciones" target="_blank" rel="noreferrer">alerta.ina.gob.ar</a> y cargar el valor como escenario.</td></tr>
+            <tr><td><span className="tag tag-obs">OBSERVADO</span></td><td>Río Paraguay en Puerto Formosa: {fmtM(RIVER_REF.observed.stage)} m el {RIVER_REF.observed.date} ({RIVER_REF.observed.trend}, <b>{RIVER_REF.observed.categoryINA}</b> según el INA). <a href={RIVER_REF.observed.url} target="_blank" rel="noreferrer">{RIVER_REF.observed.source}</a>.</td></tr>
+            <tr><td><span className="tag tag-obs">REFERENCIA INA</span></td><td>Alerta {fmtM(RIVER_REF.alert)} m · Evacuación {fmtM(RIVER_REF.evacuation)} m · Aguas bajas {fmtM(RIVER_REF.lowWater)} m (Puerto Formosa). Récord de 1983: {fmtM(RIVER_REF.record1983)} m.</td></tr>
+            <tr><td><span className="tag tag-ina">PREVISIÓN INA</span></td><td>~{fmtM(FORECAST_INA.stage)} m ± {FORECAST_INA.margin.toFixed(1).replace('.', ',')} al {FORECAST_INA.until}. {FORECAST_INA.text} <a href={FORECAST_INA.url} target="_blank" rel="noreferrer">{FORECAST_INA.source}</a>. No se integra en vivo: se actualiza a mano en <code>src/sim/scenarios.ts</code>.</td></tr>
+            <tr><td><span className="tag tag-obs">OBSERVADO</span></td><td>Monitoreo Hídrico y Agroambiental de Formosa (Subsecretaría de Producción Sustentable), parte del 17/11/2026: Puerto Formosa 4,96 m (Prefectura, 16/11), <b>−0,37 m en 7 días</b>, a 2,84 m de la alerta. Pronóstico de lluvia a 7 días para el departamento Formosa: 129 mm promedio, hasta 150 mm (Open-Meteo, <b>estimado</b>).</td></tr>
+            <tr><td><span className="tag tag-ina">ESTIMADO</span></td><td>SMN · Boletín El Niño N.º 8 (22/10/2026): 100 % de probabilidad de seguir en fase El Niño en oct-nov-dic 2026; más lluvia que lo normal en el extremo este de Pilcomayo-Bermejo (donde está Formosa).</td></tr>
+            <tr><td><span className="tag tag-ina">ESTIMADO</span></td><td>Pronóstico estacional CFS v2 (NOAA, 20 miembros), emitido el 29/10/2026 para Formosa: nov 2026–jul 2027 ~1.623 mm (+32 % sobre lo normal); <b>marzo 2027 ~308 mm</b> (normal 149) con 75 % de probabilidad de superar 200 mm. Sirve para elegir escenarios de lluvia creíbles, no como pronóstico diario.</td></tr>
+            <tr><td><span className="tag tag-user">ESCENARIO</span></td><td>Lo elige el usuario. Es hipotético y se compara solo con los umbrales oficiales del INA (alerta y evacuación), sin inventar categorías.</td></tr>
             <tr><td><span className="tag">TERRENO</span></td><td>{data?.meta.source}. Terreno desnudo estimado con aprendizaje automático a partir de un modelo satelital de superficie: puede quedar algún resto de edificios o árboles. Precisión vertical de 1 a 2 m en zonas planas.</td></tr>
-            <tr><td><span className="tag">BASE</span></td><td>{data?.osm?.source ?? 'OpenStreetMap (no cargado)'}: infraestructura, calles, riachos, barrios y edificios.</td></tr>
+            {data?.escuelas && <tr><td><span className="tag">REFERENCIA</span></td><td><a href={data.escuelas.url} target="_blank" rel="noreferrer">{data.escuelas.fuente}</a>: {data.escuelas.escuelas.reduce((a, e) => a + e.establecimientos.length, 0)} establecimientos activos en {data.escuelas.escuelas.length} edificios (descarga {data.escuelas.fecha}). Reemplazan a las escuelas de OSM. Muchas ubicaciones son aproximadas.</td></tr>}
+            {data?.poblacion && <tr><td><span className="tag">REFERENCIA</span></td><td><a href={data.poblacion.url} target="_blank" rel="noreferrer">{data.poblacion.fuente}</a>: {data.poblacion.radios} radios censales. Método: {data.poblacion.metodo}. Es un orden de magnitud, no un conteo.</td></tr>}
+            <tr><td><span className="tag">BASE</span></td><td>{data?.osm?.source ?? 'OpenStreetMap (no cargado)'}: hospitales, salud, seguridad, servicios, calles, riachos, barrios y tramos de la defensa.</td></tr>
+            <tr><td><span className="tag">BASE</span></td><td>{data?.buildings?.meta?.source ?? 'Microsoft Global ML Building Footprints'}: {(data?.buildings?.count ?? 0).toLocaleString('es-AR')} edificios.</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Categorías del INA</h3>
+        <p className="hint">Según la frecuencia de superación 1991–2020. Se aplican solo al dato observado: los cortes en metros de Puerto Formosa no están publicados, así que el escenario no recibe categoría.</p>
+        <ul>{CATEGORIES_INA.map(([c, d]) => <li key={c}><b>{c}</b>: {d}</li>)}</ul>
+
+        <h3>Incertidumbre</h3>
+        <p><span className="tag tag-user">CONFIANZA BAJA</span> Los resultados ordenan zonas para evaluar. No son un pronóstico.</p>
+        <ul>{UNCERTAINTY.map((t) => <li key={t}>{t}</li>)}</ul>
+
+        <h3>Dónde entra la IA</h3>
+        <ul>
+          <li>El cálculo del agua <b>no usa IA</b>: es un modelo físico (inercia local) y un <i>priority-flood</i> que se pueden verificar paso a paso.</li>
+          <li>El terreno sí sale de un modelo aprendido: FABDEM quita edificios y árboles del modelo satelital con aprendizaje automático.</li>
+          <li>El equipo usó un asistente de IA para investigar fuentes y programar. Cada dato tiene su fuente y fecha en este panel.</li>
+          <li>La IA <b>no predice</b> el río (eso es del INA) y <b>no decide</b> evacuaciones ni cortes de luz: esas decisiones son humanas.</li>
+        </ul>
+
+        <h3>¿Funciona? Validación con barrios reportados con agua</h3>
+        <p className="hint">Barrios que la prensa reportó con agua, comparados con lo que marca el modelo. Son pocos casos: sirve para detectar contradicciones, no es una validación estadística.</p>
+        {validation ? (
+          <table>
+            <tbody>
+              {validation.rows.map((r) => (
+                <tr key={r.name}>
+                  <td><b>{r.name}</b><br /><span className="hint">{r.kind === 'lluvia' ? 'por lluvia' : 'por el río'}</span></td>
+                  <td>{r.event}. <a href={r.url} target="_blank" rel="noreferrer">{r.source}</a></td>
+                  <td className="mono">{!r.found ? 'no está en OSM' : r.tier ? `zona ${TIER_LABEL[r.tier]} · prioridad ${r.rank}º de ${validation.ranked}` : 'el modelo NO lo marca'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p className="hint">Se calcula cuando terminan de cargar el censo y los barrios.</p>}
+        {validation && (
+          <p className="hint">
+            Resultado: {validation.rows.filter((r) => r.tier > 0).length} de {validation.rows.length} barrios reportados quedan dentro de las zonas 1º/2º/3º;
+            {' '}{validation.rows.filter((r) => r.rank > 0 && r.rank <= validation.ranked / 2).length} quedan en la mitad superior de la lista de prioridad.
+            Los que quedan abajo se muestran igual: son desacuerdos para revisar con Defensa Civil.
+          </p>
+        )}
+
+        <h3>Checklist de la guía CITF (v1.1)</h3>
+        <table className="checklist">
+          <tbody>
+            <tr><td>✔</td><td>Seleccionar un escenario hipotético de lluvias o crecida</td><td>Niveles 1º/2º/3º, crecida 1983 y valores a mano (lluvia, duración, río, desagüe, falla de la defensa)</td></tr>
+            <tr><td>✔</td><td>Identificar sectores o infraestructuras expuestos</td><td>Barrios, calles, escuelas (padrón oficial), salud, seguridad y servicios, con nivel del río que los alcanza</td></tr>
+            <tr><td>✔</td><td>Visualizar los elementos que requieren atención</td><td>Mapa 3D, mapa de calor de prioridad por población y lista ordenada</td></tr>
+            <tr><td>✔</td><td>Mostrar qué datos y supuestos se usaron</td><td>Este panel: fuentes con tipo, fecha y enlace, y cada supuesto con su valor</td></tr>
+            <tr><td>✔</td><td>Indicar horizonte temporal e incertidumbre</td><td>Horizonte y "confianza baja" junto al escenario; lista de incertidumbres</td></tr>
+            <tr><td>✔</td><td>Escala del INA (5 categorías) sin inventar categorías</td><td>Solo para el dato observado; el escenario se compara con alerta y evacuación</td></tr>
+            <tr><td>✔</td><td>Supuestos del escenario (cuánto sube el río, en cuántos días)</td><td>Junto al escenario, con el ritmo de subida de octubre de 2026</td></tr>
+            <tr><td>✔</td><td>Distinguir observado, previsión INA y escenario</td><td>Tres etiquetas siempre visibles arriba</td></tr>
+            <tr><td>✔</td><td>Zonas a evaluar, no veredictos</td><td>Textos y lista de límites; el MDE tiene 1 a 2 m de error</td></tr>
+            <tr><td>✔</td><td>Decisiones operativas bajo responsabilidad humana</td><td>La prioridad ordena, no decide</td></tr>
+            <tr><td>◐</td><td>MDE-Ar del IGN</td><td>Se usa FABDEM (30 m, sin edificios): el MDE-Ar no tiene descarga automática</td></tr>
           </tbody>
         </table>
 
@@ -504,7 +733,8 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
           <li>Qué manzana o casa se inunda: el error vertical del MDE es mayor que muchas diferencias de nivel de la ciudad.</li>
           <li>Tiempos reales de llegada del agua: no conocemos la red de desagües, sus obstrucciones ni el estado de las bombas. Los tiempos sirven para <b>ordenar</b>, no para planificar al minuto.</li>
           <li>Que el río suba igual en toda la costa: la escala mide un solo punto.</li>
-          <li>Que la lista de infraestructura esté completa: OpenStreetMap puede tener faltantes o errores.</li>
+          <li>Que la lista de infraestructura esté completa: OpenStreetMap y el padrón escolar pueden tener faltantes o ubicaciones aproximadas.</li>
+          <li>Cuánta gente se ve afectada: el censo se reparte parejo dentro de cada radio censal.</li>
           <li>Horizonte temporal: los escenarios son hipotéticos e instantáneos, no un pronóstico. El pronóstico oficial es del INA y del SMN.</li>
         </ul>
       </div>

@@ -43,8 +43,8 @@ export interface Assumptions {
 }
 
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
-  gaugeZero: 47.0,
-  defenseCrest: 60.5,
+  gaugeZero: 47.3,
+  defenseCrest: 59.0,
   manning: 0.045,
   wetThreshold: 0.15,
   drainFactorHighRiver: 0.4,
@@ -221,8 +221,8 @@ export class FloodSim {
     const qy = this.qy;
     const n2 = this.assumptions.manning ** 2;
     const s = this.scenario;
-    const raining = this.time < s.rainHours * 3600;
-    const rain = raining ? s.rainMmH / 1000 / 3600 : 0; // m/s
+    // Lluvia de este paso: solo la parte del paso que cae antes de que termine la tormenta (m).
+    const rainDepth = (s.rainMmH / 1000 / 3600) * Math.max(0, Math.min(dt, s.rainHours * 3600 - this.time));
     const highRiver = s.riverStage >= this.assumptions.alertStage;
     const drain = (s.drainMmH / 1000 / 3600) * (highRiver ? this.assumptions.drainFactorHighRiver : 1);
 
@@ -288,8 +288,8 @@ export class FloodSim {
         if (river[i]) continue;
         const kL = y * (w + 1) + x;
         const dq = ((qx[kL] - qx[kL + 1]) / dx + (qy[i] - qy[i + w]) / dy) * dt;
-        let di = d[i] + dq + rain * dt;
-        rainV += rain * dt * area;
+        let di = d[i] + dq + rainDepth;
+        rainV += rainDepth * area;
         if (!water[i] && di > 0) {
           const out = Math.min(di, drain * dt);
           di -= out;

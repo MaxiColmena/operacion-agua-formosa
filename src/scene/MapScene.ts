@@ -28,6 +28,8 @@ export interface Layers {
   lines: boolean;
   labels: boolean;
   facilities: boolean;
+  /** Mapa de calor de prioridad: zonas 1º/2º/3º ponderadas por población y vulnerabilidad (Censo 2022). */
+  priority: boolean;
 }
 
 /** Seco: tono apagado (por debajo del umbral de bloom); atención/afectado: vivos para resaltar. */
@@ -252,6 +254,8 @@ export class MapScene {
         uWaterSize: { value: new THREE.Vector2(1, 1) },
         uStreet: { value: new THREE.Vector3(STREET.wet, STREET.curb, STREET.impassable) },
         uShowZones: { value: 0 },
+        uPriority: { value: new THREE.DataTexture(new Float32Array(1), 1, 1, THREE.RedFormat, THREE.FloatType) },
+        uShowPriority: { value: 0 },
         uShowLines: { value: 1 },
         uTime: { value: 0 },
         fogColor: { value: new THREE.Color('#030812') },
@@ -270,6 +274,7 @@ export class MapScene {
         uniform sampler2D uZones; uniform sampler2D uLines; uniform sampler2D uRoads; uniform sampler2D uWater;
         uniform vec2 uWaterSize; uniform vec3 uStreet;
         uniform float uShowZones; uniform float uShowLines; uniform float uTime;
+        uniform sampler2D uPriority; uniform float uShowPriority;
         uniform vec3 fogColor; uniform float fogDensity;
         varying float vElev; varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying float vFogDepth;
         float lineAt(float v, float w) { float f = fract(v); float d = min(f, 1.0 - f) / max(fwidth(v), 1e-4); return 1.0 - clamp(d / w, 0.0, 1.0); }
@@ -313,6 +318,16 @@ export class MapScene {
             vec3 zc = zone < 1.5 ? vec3(1.0, 0.18, 0.28) : zone < 2.5 ? vec3(1.0, 0.55, 0.12) : vec3(1.0, 0.88, 0.25);
             float pulse = 0.55 + 0.12 * sin(uTime * 2.0 + vW.x * 3.0);
             col = mix(col, zc, pulse * (zone < 1.5 ? 0.85 : 0.7));
+          }
+          // Prioridad por población: mapa de calor (amarillo → naranja → rojo → magenta).
+          if (uShowPriority > 0.5) {
+            float pv = texture2D(uPriority, tuv).r;
+            if (pv > 0.02) {
+              vec3 hc = pv < 0.33 ? mix(vec3(1.0, 0.85, 0.25), vec3(1.0, 0.5, 0.1), pv / 0.33)
+                      : pv < 0.66 ? mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.12, 0.2), (pv - 0.33) / 0.33)
+                      : mix(vec3(1.0, 0.12, 0.2), vec3(1.0, 0.2, 0.85), (pv - 0.66) / 0.34);
+              col = mix(col, hc * (1.0 + 0.35 * pv), 0.3 + 0.6 * pv);
+            }
           }
           float fog = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
           gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
@@ -909,8 +924,24 @@ export class MapScene {
     }
   }
 
+  // ---------- prioridad por población ----------
+  /** Carga el mapa de calor de prioridad (valores 0–1 sobre la grilla de la simulación). */
+  setPriorityHeat(values: Float32Array, width: number, height: number) {
+    const old = this.terrainMat.uniforms.uPriority.value as THREE.DataTexture;
+    // 8 bits alcanzan para colorear y el filtrado lineal funciona en cualquier placa (los float no siempre).
+    const bytes = new Uint8Array(values.length);
+    for (let i = 0; i < values.length; i++) bytes[i] = Math.round(Math.min(1, Math.max(0, values[i])) * 255);
+    const tex = new THREE.DataTexture(bytes, width, height, THREE.RedFormat, THREE.UnsignedByteType);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    this.terrainMat.uniforms.uPriority.value = tex;
+    old.dispose();
+  }
+
   // ---------- capas ----------
   setLayers(l: Layers) {
+    this.terrainMat.uniforms.uShowPriority.value = l.priority ? 1 : 0;
     if (this.water) this.water.visible = l.water;
     this.terrainMat.uniforms.uShowZones.value = l.zones ? 1 : 0;
     this.terrainMat.uniforms.uShowLines.value = l.lines ? 1 : 0;
