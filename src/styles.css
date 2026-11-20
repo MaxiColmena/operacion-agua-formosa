@@ -363,3 +363,12 @@ select { background: var(--panel-solid); color: var(--text); border: 1px solid v
   .panel.left { width: 280px; }
   .sources .tag-user { display: none; }
 }
+
+/* Lista de la red pluvial relevada en el panel de supuestos */
+.drain-list { columns: 2; column-gap: 24px; font-size: 12px; padding-left: 0; list-style: none; }
+.drain-list li { break-inside: avoid; margin: 2px 0; }
+.drain-list li.missing { opacity: 0.6; }
+@media (max-width: 640px) { .drain-list { columns: 1; } }
+
+/* Panel «Vista»: opciones de visualización poco usadas, plegadas para no saturar la barra */
+.view-panel { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 6px; }

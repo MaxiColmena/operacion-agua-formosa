@@ -33,7 +33,7 @@ export default function App() {
   const [presetId, setPresetId] = useState<string | null>('n2');
   const [stats, setStats] = useState<SimStats | null>(null);
   const [speed, setSpeed] = useState(900);
-  const [layers, setLayers] = useState<Layers>({ water: true, zones: false, buildings: true, lines: true, labels: true, facilities: true });
+  const [layers, setLayers] = useState<Layers>({ water: true, zones: false, drainage: false, buildings: true, lines: true, labels: true, facilities: true });
   const [waterMode, setWaterMode] = useState<WaterMode>('depth');
   const [exag, setExag] = useState(DEFAULT_EXAG);
   const [tab, setTab] = useState<'barrios' | 'infra' | 'calles'>('calles');
@@ -50,6 +50,7 @@ export default function App() {
   const [freeCam, setFreeCam] = useState({ active: false, speed: 1 });
   const [showGuide, setShowGuide] = useState(() => !guideSeen());
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showView, setShowView] = useState(false);
   /** Orden de las listas de barrios e infraestructura: por la simulación o por la altura del río a la que se afectan. */
   const [order, setOrder] = useState<'sim' | 'rio'>('sim');
   const closeGuide = () => { markGuideSeen(); setShowGuide(false); };
@@ -125,7 +126,7 @@ export default function App() {
     worker.postMessage({
       type: 'init',
       grid: { width: data.meta.width, height: data.meta.height, cellX: data.meta.cellX, cellY: data.meta.cellY, z: data.z },
-      mask: data.mask, factor: SIM_FACTOR, scenario, assumptions: ASSUMPTIONS,
+      mask: data.mask, factor: SIM_FACTOR, scenario, assumptions: ASSUMPTIONS, drainage: data.drainage,
     } satisfies WorkerIn);
 
     const onClick = (ev: MouseEvent) => {
@@ -331,7 +332,9 @@ export default function App() {
               </label>
               <input type="range" min={0} max={40} step={1} value={scenario.drainMmH} onChange={(e) => update({ drainMmH: +e.target.value })}
                 aria-label="Desagüe más infiltración en milímetros por hora" data-tip="Arrastrá para cambiar cuánto drena la ciudad" />
-              <div className="hint">No hay datos públicos de la red pluvial: es un supuesto.</div>
+              <div className="hint">{data?.drainage
+                ? `Es el desagüe donde hay bocas de tormenta o sumideros relevados (capa «Bocas de tormenta»). En el resto de la ciudad se usa el ${Math.round(ASSUMPTIONS.drainNoNetwork * 100)} % de este valor. Es un supuesto.`
+                : 'No hay datos de la red pluvial: es un supuesto.'}</div>
               {scenario.riverStage >= ASSUMPTIONS.alertStage && (
                 <div className="hint warn">Río en alerta o más: se supone que el desagüe por gravedad se corta y solo queda el bombeo ({Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} %).</div>
               )}
@@ -396,9 +399,6 @@ export default function App() {
         </div>
         {tab === 'calles' ? (
           <div className="street-sum">
-            <div><b className="mono">{(streets?.wetKm ?? 0).toFixed(1)}</b><span>km con agua en la calzada (≥ {STREET.wet * 100} cm)</span></div>
-            <div className="c2"><b className="mono">{(streets?.curbKm ?? 0).toFixed(1)}</b><span>km con agua sobre el cordón (≥ {STREET.curb * 100} cm)</span></div>
-            <div className="c3"><b className="mono">{(streets?.impassableKm ?? 0).toFixed(1)}</b><span>km intransitables (≥ {STREET.impassable * 100} cm)</span></div>
             <div className="c4"><b className="mono">{(streets?.dirtCurbKm ?? 0).toFixed(1)}</b><span>km de calles de tierra sobre el cordón</span></div>
             <p className="list-help">Calles con más kilómetros de agua sobre el cordón. Profundidad estimada: en zona urbana se supone que el agua de la manzana se junta en la calzada.</p>
           </div>
@@ -502,21 +502,28 @@ export default function App() {
       <footer className="dock" ref={dockRef}>
         <div className="layers">
           <div className="dock-group" role="group" aria-label="Capas visibles en el mapa">
-            <span className="dock-label">Ver en el mapa</span>
+            <span className="dock-label">Mostrar en el mapa</span>
             <Toggle on={layers.water} onClick={() => setLayers({ ...layers, water: !layers.water })}
               tip="El agua de la simulación, moviéndose en tiempo real">Agua</Toggle>
             <Toggle on={layers.zones} onClick={() => setLayers({ ...layers, zones: !layers.zones })}
-              tip="Mapa fijo, precalculado: qué zonas se inundan con lluvia fuerte (1º), con temporal severo (2º) o solo en un evento extremo (3º)">Zonas de riesgo</Toggle>
-            <Toggle on={layers.buildings} onClick={() => setLayers({ ...layers, buildings: !layers.buildings })}
-              tip="Edificios de OpenStreetMap en 3D">Edificios</Toggle>
-            <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}
-              tip="Calles (cambian de color cuando se mojan) y riachos">Calles y riachos</Toggle>
+              tip="Mapa fijo, precalculado: qué zonas se inundan con lluvia fuerte (1º), con temporal severo (2º) o solo en un evento extremo (3º)">Zonas 1º/2º/3º</Toggle>
+            {data?.drainage && (
+              <Toggle on={layers.drainage} onClick={() => setLayers({ ...layers, drainage: !layers.drainage })}
+                tip={`Dónde hay bocas de tormenta o sumideros según el relevamiento del equipo (sin verificar). Ahí el desagüe es el 100 % del elegido; en el resto, el ${Math.round(ASSUMPTIONS.drainNoNetwork * 100)} %.`}>Bocas de tormenta</Toggle>
+            )}
             <Toggle on={layers.facilities} onClick={() => setLayers({ ...layers, facilities: !layers.facilities })}
               tip="Hospitales, escuelas, bomberos y otros servicios. Clic en uno para ver su ficha.">Instalaciones</Toggle>
-            <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}
-              tip="Nombres de barrios y calles sobre el mapa">Nombres</Toggle>
+            <Toggle on={layers.buildings} onClick={() => setLayers({ ...layers, buildings: !layers.buildings })}
+              tip="Edificios en 3D">Edificios</Toggle>
           </div>
-          {layers.water && (
+          <div className="dock-group help" role="group" aria-label="Vista y ayuda">
+            <button className={`toggle ${showView ? 'on' : ''}`} aria-expanded={showView} onClick={() => setShowView((v) => !v)}
+              data-tip="Color del agua, relieve, calles y cámara libre">⚙ Vista</button>
+            <button className="btn ghost" onClick={() => setShowInfo(true)} data-tip="Qué datos usamos, qué suponemos y qué NO podemos asegurar">ⓘ Supuestos y límites</button>
+          </div>
+        </div>
+        {showView && (
+          <div className="layers view-panel">
             <div className="dock-group" role="group" aria-label="Cómo se colorea el agua">
               <span className="dock-label">Color del agua</span>
               <div className="seg">
@@ -526,26 +533,26 @@ export default function App() {
                   data-tip="Colorea según cuándo llegó el agua: rojo lo primero, amarillo lo último">Cuándo llegó</button>
               </div>
             </div>
-          )}
-          <div className="dock-group" role="group" aria-label="Cámara">
-            <span className="dock-label">Cámara</span>
-            <label className="exag" data-tip="Exagera la altura del terreno para que se vean los bajos. Formosa es casi plana: 1× es la escala real.">
-              <span>Relieve ×{exag}</span>
-              <input type="range" min={EXAG_MIN} max={EXAG_MAX} step={1} value={exag} onChange={(e) => setExag(Number(e.target.value))}
-                aria-label="Exageración vertical del relieve" />
-            </label>
-            <button className={`toggle freecam-btn ${freeCam.active ? 'on' : ''}`} data-tip="Recorré la ciudad como un dron con el teclado (tecla F para entrar o salir)"
-              aria-pressed={freeCam.active}
-              onClick={(e) => { e.currentTarget.blur(); sceneRef.current?.setFreeCamera(!freeCam.active); }}>
-              ✈ Cámara libre
-            </button>
+            <div className="dock-group" role="group" aria-label="Calles y nombres">
+              <Toggle on={layers.lines} onClick={() => setLayers({ ...layers, lines: !layers.lines })}
+                tip="Calles (se pintan cuando el agua pasa el cordón), riachos y defensa">Calles</Toggle>
+              <Toggle on={layers.labels} onClick={() => setLayers({ ...layers, labels: !layers.labels })}
+                tip="Nombres de barrios y calles sobre el mapa">Nombres</Toggle>
+            </div>
+            <div className="dock-group" role="group" aria-label="Cámara">
+              <label className="exag" data-tip="Exagera la altura del terreno para que se vean los bajos. Formosa es casi plana: 1× es la escala real.">
+                <span>Relieve ×{exag}</span>
+                <input type="range" min={EXAG_MIN} max={EXAG_MAX} step={1} value={exag} onChange={(e) => setExag(Number(e.target.value))}
+                  aria-label="Exageración vertical del relieve" />
+              </label>
+              <button className={`toggle freecam-btn ${freeCam.active ? 'on' : ''}`} data-tip="Recorré la ciudad como un dron con el teclado (tecla F para entrar o salir)"
+                aria-pressed={freeCam.active}
+                onClick={(e) => { e.currentTarget.blur(); sceneRef.current?.setFreeCamera(!freeCam.active); }}>
+                ✈ Cámara libre
+              </button>
+            </div>
           </div>
-          <div className="dock-group help" role="group" aria-label="Ayuda">
-            <span className="dock-label">Ayuda</span>
-            <button className="toggle" onClick={() => setShowGuide(true)} data-tip="Guía rápida de uso en 4 pasos">? Cómo se usa</button>
-            <button className="btn ghost" onClick={() => setShowInfo(true)} data-tip="Qué datos usamos, qué suponemos y qué NO podemos asegurar">ⓘ Supuestos y límites</button>
-          </div>
-        </div>
+        )}
         <Legend layers={layers} mode={waterMode} />
       </footer>
 
@@ -653,9 +660,9 @@ function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
     <span><i style={{ background: '#d98033' }} />2º temporal</span>
     <span><i style={{ background: '#d9c252' }} />3º extremo</span>
   </>) });
+  if (layers.drainage) groups.push({ t: 'Bocas de tormenta', items: <span><i style={{ background: '#2ec79e' }} />con red relevada (desagüe 100 %)</span> });
   if (layers.lines) groups.push({ t: 'Calles', items: (<>
-    <span><i style={{ background: '#3894c7' }} />mojada</span>
-    <span><i style={{ background: '#243db8' }} />agua sobre el cordón</span>
+    <span><i style={{ background: '#2952c7' }} />agua sobre el cordón</span>
     <span><i style={{ background: '#e5424d' }} />intransitable</span>
   </>) });
   if (layers.facilities) groups.push({ t: 'Instalaciones', items: (<>
@@ -697,8 +704,10 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
         <table>
           <tbody>
             <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Dato oficial (Gobierno de Formosa, 08/12/2015): la cota IGN 59 m equivale a 11,70 m en la escala del puerto, de donde sale el cero 47,30 m IGN. <b>A confirmar con el INA.</b> El terreno (FABDEM) usa otro dátum (EGM2008); la diferencia no está verificada.</td></tr>
-            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Dato oficial 2015: 11,70 m de escala. Traza reconstruida (~23,5 km; el dato oficial es ~15 km): 5 tramos reales de OpenStreetMap unidos con conectores estimados, armada por M. Colman. La rotura simulada es una brecha de ~200 m frente al puerto.</td></tr>
-            <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>No hay datos públicos de la red pluvial. Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
+            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Dato oficial 2015: 11,70 m de escala. Traza reconstruida (~38,6 km; el dato oficial es ~15 km): los 5 tramos reales de OpenStreetMap unidos con conectores estimados que bordean la zona edificada sin cortar manzanas (al norte sigue el riacho Formosa). Es una aproximación: falta la traza oficial. La rotura simulada es una brecha de ~200 m frente al puerto.</td></tr>
+            <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>{data?.drainageMeta
+              ? <>Varía por zona según la red pluvial relevada ({data.drainageMeta.totalKm2} km²): con bocas de tormenta o sumideros, el 100 % del valor elegido; en el resto (solo cunetas e infiltración), el {Math.round(ASSUMPTIONS.drainNoNetwork * 100)} %. Alrededor de cada calle se toman {data.drainageMeta.radii.street} m y alrededor de cada esquina {data.drainageMeta.radii.corner} m.</>
+              : 'No hay datos de la red pluvial: toda la ciudad drena igual.'} Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
             <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
             <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
             {data?.thresholds && (
@@ -720,10 +729,20 @@ function InfoModal({ data, onClose }: { data: AppData | null; onClose: () => voi
           </tbody>
         </table>
 
+        {data?.drainageMeta && (<>
+          <h3>Red pluvial relevada</h3>
+          <p className="hint">{data.drainageMeta.source}. Ubicada sobre las calles y barrios de OpenStreetMap. Es una referencia para repartir el desagüe, no un catastro de la red: no sabemos el diámetro de los caños ni si están obstruidos.</p>
+          <ul className="drain-list">
+            {data.drainageMeta.entries.map((e) => (
+              <li key={e.id} className={e.ok ? '' : 'missing'}>{e.ok ? '✓' : '✗'} {e.label}{e.ok ? ` · ${e.km2} km²` : ''}{e.note ? ` (${e.note})` : ''}</li>
+            ))}
+          </ul>
+        </>)}
+
         <h3>Lo que NO podemos asegurar</h3>
         <ul>
           <li>Qué manzana o casa se inunda: el error vertical del MDE es mayor que muchas diferencias de nivel de la ciudad.</li>
-          <li>Tiempos reales de llegada del agua: no conocemos la red de desagües, sus obstrucciones ni el estado de las bombas. Los tiempos sirven para <b>ordenar</b>, no para planificar al minuto.</li>
+          <li>Tiempos reales de llegada del agua: la red pluvial está relevada solo en parte, sin diámetros ni estado de limpieza, y no conocemos el estado de las bombas. Los tiempos sirven para <b>ordenar</b>, no para planificar al minuto.</li>
           <li>Que el río suba igual en toda la costa: la escala mide un solo punto.</li>
           <li>Que la lista de infraestructura esté completa: OpenStreetMap puede tener faltantes o errores.</li>
           <li>Horizonte temporal: los escenarios son hipotéticos e instantáneos, no un pronóstico. El pronóstico oficial es del INA y del SMN.</li>

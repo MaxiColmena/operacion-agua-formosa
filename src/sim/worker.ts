@@ -1,9 +1,9 @@
 /// <reference lib="webworker" />
 // Corre la simulación fuera del hilo de la interfaz y publica cuadros (profundidad, llegada) unas 15 veces por segundo.
-import { FloodSim, downsample, splitMasks, type Assumptions, type Grid, type Scenario } from './engine';
+import { FloodSim, downsample, drainFactorMap, splitMasks, type Assumptions, type Grid, type Scenario } from './engine';
 
 export type WorkerIn =
-  | { type: 'init'; grid: Grid; mask: Uint8Array; factor: number; scenario: Scenario; assumptions: Assumptions }
+  | { type: 'init'; grid: Grid; mask: Uint8Array; factor: number; scenario: Scenario; assumptions: Assumptions; drainage: Uint8Array | null }
   | { type: 'scenario'; scenario: Scenario }
   | { type: 'play' }
   | { type: 'pause' }
@@ -86,6 +86,7 @@ ctx.onmessage = (e: MessageEvent<WorkerIn>) => {
       const ds = downsample(m.grid, m.mask, m.factor);
       mask = ds.mask;
       sim = new FloodSim(ds.grid, splitMasks(mask), m.scenario, m.assumptions);
+      if (m.drainage) sim.drainMap = drainFactorMap(m.drainage, m.grid.width, m.grid.height, m.factor, m.assumptions.drainNoNetwork);
       countRiver = sim.masks.river.reduce((a, v) => a + v, 0);
       const out: WorkerOut = {
         type: 'ready', width: ds.grid.width, height: ds.grid.height, cellX: ds.grid.cellX, cellY: ds.grid.cellY,

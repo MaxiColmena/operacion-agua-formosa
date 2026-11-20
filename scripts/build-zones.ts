@@ -1,8 +1,8 @@
 // Precalcula a resolución completa (30 m) las zonas que se afectan en 1er, 2do y 3er lugar.
 // Zona k = celdas que superan el umbral en el escenario de nivel k y no en los anteriores.
 // Salida: public/data/zones.bin (Uint8: 0 = no afectada, 1..3 = nivel) y zones.json.
-import { readFileSync, writeFileSync } from 'node:fs';
-import { FloodSim, splitMasks } from '../src/sim/engine';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { FloodSim, drainFactorMap, splitMasks } from '../src/sim/engine';
 import { ASSUMPTIONS, LEVELS } from '../src/sim/scenarios';
 import { encodePng } from './png';
 import { OUT_DIR } from './config';
@@ -13,6 +13,10 @@ const maskAll = new Uint8Array(readFileSync(`${OUT_DIR}/masks.bin`));
 const masks = splitMasks(maskAll);
 const grid = { width: meta.width, height: meta.height, cellX: meta.cellX, cellY: meta.cellY, z };
 const n = grid.width * grid.height;
+// Red pluvial relevada (scripts/build-drainage.ts): si no está, toda la ciudad drena igual.
+const drainNet = existsSync(`${OUT_DIR}/drainage.bin`) ? new Uint8Array(readFileSync(`${OUT_DIR}/drainage.bin`)) : null;
+const drainMap = drainNet && drainNet.length === n ? drainFactorMap(drainNet, grid.width, grid.height, 1, ASSUMPTIONS.drainNoNetwork) : null;
+console.log(drainMap ? 'con red pluvial relevada' : 'sin red pluvial relevada (desagüe uniforme)');
 
 const zones = new Uint8Array(n);
 const byRiver = new Uint8Array(n); // 1 = afectada por el río (bañadera conectada) en ese nivel
@@ -20,6 +24,7 @@ const stats: Record<string, unknown>[] = [];
 for (const [k, sc] of LEVELS.entries()) {
   const t0 = Date.now();
   const sim = new FloodSim(grid, masks, sc, ASSUMPTIONS);
+  sim.drainMap = drainMap;
   sim.advance((sc.rainHours + sc.afterHours) * 3600);
   let cells = 0;
   for (let i = 0; i < n; i++) {
@@ -61,6 +66,7 @@ for (let i = 0; i < n; i++) out[i] = zones[i] | (byRiver[i] ? 4 : 0);
 writeFileSync(`${OUT_DIR}/zones.bin`, out);
 writeFileSync(`${OUT_DIR}/zones.json`, JSON.stringify({
   generated: new Date().toISOString(), resolution: '30 m', threshold: ASSUMPTIONS.wetThreshold,
+  drainage: drainMap ? `red pluvial relevada: 100 % del desagüe; resto: ${ASSUMPTIONS.drainNoNetwork * 100} %` : 'desagüe uniforme',
   levels: LEVELS.map((l) => ({ id: l.id, short: l.short, label: l.label, why: l.why })), stats,
 }, null, 2));
 

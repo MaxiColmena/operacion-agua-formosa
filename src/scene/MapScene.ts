@@ -7,7 +7,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { AppData, Buildings, Facility, TerrainMeta } from '../data/load';
 import { lonLatToCell } from '../data/load';
-import { MASK_DEFENSE, MASK_RIVER } from '../sim/engine';
+import { MASK_RIVER, MASK_WATER } from '../sim/engine';
+import { DEFENSA_ANILLO } from '../sim/defensa';
 import { STREET } from '../sim/scenarios';
 import { FreeCamera, type FreeCameraState } from './FreeCamera';
 
@@ -24,6 +25,8 @@ export type FacilityStatus = 'seco' | 'atencion' | 'afectado';
 export interface Layers {
   water: boolean;
   zones: boolean;
+  /** Red pluvial relevada (bocas de tormenta y sumideros). */
+  drainage: boolean;
   buildings: boolean;
   lines: boolean;
   labels: boolean;
@@ -240,12 +243,22 @@ export class MapScene {
     zoneTex.minFilter = THREE.NearestFilter;
     zoneTex.needsUpdate = true;
 
+    // Textura de la red pluvial relevada (0 = sin red, 1..3 = grupo).
+    const drainData = new Uint8Array(w * h);
+    if (data.drainage) for (let i = 0; i < w * h; i++) drainData[i] = data.drainage[i] ? 255 : 0;
+    const drainTex = new THREE.DataTexture(drainData, w, h, THREE.RedFormat, THREE.UnsignedByteType);
+    drainTex.magFilter = THREE.LinearFilter;
+    drainTex.minFilter = THREE.LinearFilter;
+    drainTex.needsUpdate = true;
+
     const { lines: linesTex, roads: roadsTex } = this.buildLinesTexture(data);
     this.streetTex = new THREE.DataTexture(new Float32Array(2), 1, 1, THREE.RGFormat, THREE.FloatType);
 
     this.terrainMat = new THREE.ShaderMaterial({
       uniforms: {
         uZones: { value: zoneTex },
+        uDrain: { value: drainTex },
+        uShowDrain: { value: 0 },
         uLines: { value: linesTex },
         uRoads: { value: roadsTex },
         uWater: { value: this.streetTex },
@@ -270,6 +283,7 @@ export class MapScene {
         uniform sampler2D uZones; uniform sampler2D uLines; uniform sampler2D uRoads; uniform sampler2D uWater;
         uniform vec2 uWaterSize; uniform vec3 uStreet;
         uniform float uShowZones; uniform float uShowLines; uniform float uTime;
+        uniform sampler2D uDrain; uniform float uShowDrain;
         uniform vec3 fogColor; uniform float fogDensity;
         varying float vElev; varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying float vFogDepth;
         float lineAt(float v, float w) { float f = fract(v); float d = min(f, 1.0 - f) / max(fwidth(v), 1e-4); return 1.0 - clamp(d / w, 0.0, 1.0); }
@@ -300,11 +314,11 @@ export class MapScene {
             vec2 f = fract(p); vec2 i0 = (floor(p) + 0.5) / uWaterSize; vec2 dt = 1.0 / uWaterSize;
             float s = mix(mix(texture2D(uWater, i0).g, texture2D(uWater, i0 + vec2(dt.x, 0.0)).g, f.x),
                           mix(texture2D(uWater, i0 + vec2(0.0, dt.y)).g, texture2D(uWater, i0 + dt).g, f.x), f.y);
-            if (s > uStreet.x) {
-              vec3 wc = s < uStreet.y ? mix(vec3(0.22, 0.58, 0.78), vec3(0.14, 0.4, 0.76), (s - uStreet.x) / (uStreet.y - uStreet.x))
-                      : s < uStreet.z ? mix(vec3(0.14, 0.24, 0.72), vec3(0.4, 0.22, 0.7), (s - uStreet.y) / (uStreet.z - uStreet.y))
+            // Solo se pinta desde el cordón (10 cm): con menos, toda la grilla de calles se teñía de azul.
+            if (s > uStreet.y) {
+              vec3 wc = s < uStreet.z ? mix(vec3(0.16, 0.32, 0.78), vec3(0.42, 0.24, 0.72), (s - uStreet.y) / (uStreet.z - uStreet.y))
                       : vec3(0.9, 0.26, 0.3) * (0.86 + 0.12 * sin(uTime * 5.0));
-              col = mix(col, wc * 0.95, min(1.0, rd.a * 1.6) * smoothstep(uStreet.x, uStreet.x + 0.03, s));
+              col = mix(col, wc * 0.95, min(1.0, rd.a * 1.6) * smoothstep(uStreet.y, uStreet.y + 0.03, s));
             }
           }
           // Zonas 1ª / 2ª / 3ª.
@@ -313,6 +327,12 @@ export class MapScene {
             vec3 zc = zone < 1.5 ? vec3(0.82, 0.24, 0.28) : zone < 2.5 ? vec3(0.85, 0.5, 0.2) : vec3(0.85, 0.76, 0.32);
             float pulse = 0.52 + 0.06 * sin(uTime * 2.0 + vW.x * 3.0);
             col = mix(col, zc, pulse * (zone < 1.5 ? 0.85 : 0.7));
+          }
+          // Red pluvial relevada: rayado verde agua sobre las celdas que drenan al 100 %.
+          float dr = texture2D(uDrain, tuv).r;
+          if (uShowDrain > 0.5 && dr > 0.02) {
+            float hatch = step(0.5, fract((vW.x + vW.z) * 9.0));
+            col = mix(col, vec3(0.18, 0.78, 0.62), dr * (0.28 + 0.3 * hatch));
           }
           float fog = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
           gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
@@ -375,8 +395,20 @@ export class MapScene {
     g.fillStyle = 'rgba(18,58,128,0.55)';
     const sx = W / w, sy = H / h;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_RIVER) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
-    g.fillStyle = 'rgba(196,112,178,0.9)';
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_DEFENSE) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
+    // Anillo de defensa como línea continua (la máscara de celdas queda escalonada).
+    {
+      const { west, east, north, south } = this.meta.bounds;
+      g.strokeStyle = 'rgba(196,112,178,0.9)';
+      g.lineWidth = 4;
+      g.lineJoin = 'round';
+      g.beginPath();
+      DEFENSA_ANILLO.forEach(([lon, lat], i) => {
+        const x = ((lon - west) / (east - west)) * W, y = ((north - lat) / (north - south)) * H;
+        if (i) g.lineTo(x, y); else g.moveTo(x, y);
+      });
+      g.closePath();
+      g.stroke();
+    }
     const mk = (c: HTMLCanvasElement) => {
       const tex = new THREE.CanvasTexture(c);
       tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
@@ -496,7 +528,8 @@ export class MapScene {
       const u = this.urbanCell;
       for (let i = 0; i < d.length; i++) {
         sd[i * 2] = d[i];
-        sd[i * 2 + 1] = mask[i] & MASK_RIVER ? 0 : streetDepth(d[i], u[i]);
+        // Río, riachos y lagunas no cuentan como agua en la calle (si no, las calles vecinas se tiñen).
+        sd[i * 2 + 1] = mask[i] & (MASK_RIVER | MASK_WATER) ? 0 : streetDepth(d[i], u[i]);
       }
       this.streetTex.needsUpdate = true;
     }
@@ -913,6 +946,7 @@ export class MapScene {
   setLayers(l: Layers) {
     if (this.water) this.water.visible = l.water;
     this.terrainMat.uniforms.uShowZones.value = l.zones ? 1 : 0;
+    this.terrainMat.uniforms.uShowDrain.value = l.drainage ? 1 : 0;
     this.terrainMat.uniforms.uShowLines.value = l.lines ? 1 : 0;
     if (this.buildings) this.buildings.visible = l.buildings;
     this.labels.forEach((o) => (o.visible = l.labels));

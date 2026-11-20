@@ -1,0 +1,206 @@
+{
+  "generated": "2026-11-20T22:44:44.204Z",
+  "source": "Relevamiento del equipo (información municipal y de prensa), sin verificar en campo",
+  "radii": {
+    "street": 50,
+    "corner": 100,
+    "paved": 40
+  },
+  "totalKm2": 7.21,
+  "entries": [
+    {
+      "id": "casco",
+      "label": "Casco céntrico",
+      "group": 1,
+      "ok": true,
+      "km2": 4.46
+    },
+    {
+      "id": "9julio",
+      "label": "Av. 9 de Julio",
+      "group": 1,
+      "ok": true,
+      "km2": 0.24
+    },
+    {
+      "id": "fotheringham",
+      "label": "Fotheringham y Rivadavia",
+      "group": 1,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "jmuriburu",
+      "label": "José María Uriburu y 17 de Octubre",
+      "group": 1,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "jujuy",
+      "label": "Jujuy (Junín – González Lelong)",
+      "group": 1,
+      "ok": true,
+      "km2": 0.05,
+      "note": "tramo aproximado (400 m alrededor del cruce)"
+    },
+    {
+      "id": "madariaga",
+      "label": "Madariaga",
+      "group": 1,
+      "ok": true,
+      "km2": 0.27
+    },
+    {
+      "id": "mitre",
+      "label": "Mitre (España – Corrientes)",
+      "group": 1,
+      "ok": true,
+      "km2": 0.07
+    },
+    {
+      "id": "deanfunes",
+      "label": "Deán Funes (Pringles – Brandsen)",
+      "group": 1,
+      "ok": true,
+      "km2": 0.07
+    },
+    {
+      "id": "moreno9j",
+      "label": "Mariano Moreno y 9 de Julio",
+      "group": 1,
+      "ok": false,
+      "km2": 0,
+      "note": "las calles no se cruzan en OSM"
+    },
+    {
+      "id": "morenosaav",
+      "label": "Mariano Moreno y Saavedra",
+      "group": 1,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "kirchner",
+      "label": "Av. Néstor Kirchner (Calle 17 – La Nueva Formosa)",
+      "group": 2,
+      "ok": true,
+      "km2": 0.01
+    },
+    {
+      "id": "lelong9j",
+      "label": "González Lelong y 9 de Julio",
+      "group": 2,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "lelonggn",
+      "label": "González Lelong y Gendarmería Nacional",
+      "group": 2,
+      "ok": false,
+      "km2": 0,
+      "note": "las calles no se cruzan en OSM"
+    },
+    {
+      "id": "italia",
+      "label": "Av. Italia (Riacho El Pucú – Av. Avellaneda)",
+      "group": 2,
+      "ok": true,
+      "km2": 0.11
+    },
+    {
+      "id": "constituyentes",
+      "label": "Av. Los Constituyentes y Beata Nazaria March",
+      "group": 2,
+      "ok": false,
+      "km2": 0,
+      "note": "no está «constituyentes» en OSM"
+    },
+    {
+      "id": "antartida",
+      "label": "Av. Antártida Argentina (rotonda de la Kirchner – Procrear)",
+      "group": 2,
+      "ok": true,
+      "km2": 0.22
+    },
+    {
+      "id": "pueyrredon",
+      "label": "Av. Pueyrredón (B° Mariano Moreno)",
+      "group": 2,
+      "ok": true,
+      "km2": 0.12
+    },
+    {
+      "id": "gendcabral",
+      "label": "Gendarmería Nacional y Cabral",
+      "group": 2,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "diagonal",
+      "label": "Av. Diagonal (Italia – Gendarmería)",
+      "group": 2,
+      "ok": true,
+      "km2": 0.17
+    },
+    {
+      "id": "trinidad",
+      "label": "Trinidad González (B° Ibirá Pitá)",
+      "group": 3,
+      "ok": true,
+      "km2": 0.2
+    },
+    {
+      "id": "ocleppo",
+      "label": "Ocleppo y Viciconte (B° Eva Perón)",
+      "group": 3,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "brunelli",
+      "label": "Brunelli y Alem (B° San Miguel)",
+      "group": 3,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "chacosf",
+      "label": "Av. Chaco y Santa Fe (B° Lote 4)",
+      "group": 3,
+      "ok": true,
+      "km2": 0.03
+    },
+    {
+      "id": "chacomoreno",
+      "label": "Av. Chaco y Moreno (B° Lote 4)",
+      "group": 3,
+      "ok": false,
+      "km2": 0,
+      "note": "las calles no se cruzan en OSM"
+    },
+    {
+      "id": "pilar",
+      "label": "B° Virgen del Pilar",
+      "group": 3,
+      "ok": true,
+      "km2": 0.55
+    },
+    {
+      "id": "pumas",
+      "label": "Av. Los Pumas (B° Nueva Formosa)",
+      "group": 3,
+      "ok": true,
+      "km2": 0.32
+    },
+    {
+      "id": "sjbautista",
+      "label": "B° San Juan Bautista",
+      "group": 3,
+      "ok": true,
+      "km2": 0.64
+    }
+  ]
+}

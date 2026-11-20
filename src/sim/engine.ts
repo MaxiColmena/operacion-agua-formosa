@@ -40,6 +40,11 @@ export interface Assumptions {
   drainFactorHighRiver: number;
   /** Altura de alerta en Puerto Formosa (INA). */
   alertStage: number;
+  /**
+   * Fracción del desagüe elegido que tienen las celdas SIN red pluvial relevada (solo cunetas e infiltración).
+   * Las celdas con red relevada (public/data/drainage.bin) drenan el 100 %. SUPUESTO.
+   */
+  drainNoNetwork: number;
 }
 
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
@@ -49,6 +54,7 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   wetThreshold: 0.15,
   drainFactorHighRiver: 0.4,
   alertStage: 7.8,
+  drainNoNetwork: 0.5,
 };
 
 /** Máscaras estáticas que acompañan a la grilla. */
@@ -76,6 +82,8 @@ export class FloodSim {
   rainVolume = 0; // m³ caídos
   drainVolume = 0; // m³ evacuados por desagüe/infiltración
   lastDt = 0;
+  /** Factor de desagüe por celda (0–1). Sin mapa, toda la ciudad drena igual. */
+  drainMap: Float32Array | null = null;
 
   constructor(
     readonly grid: Grid,
@@ -293,7 +301,7 @@ export class FloodSim {
         let di = d[i] + dq + rain * dt;
         rainV += rain * dt * area;
         if (!water[i] && di > 0) {
-          const out = Math.min(di, drain * dt);
+          const out = Math.min(di, drain * (this.drainMap ? this.drainMap[i] : 1) * dt);
           di -= out;
           drainV += out * area;
         }
@@ -349,6 +357,24 @@ export function effectiveTerrain(
       }
     out[i] = floor;
   }
+  return out;
+}
+
+/**
+ * Factor de desagüe por celda a partir de la red relevada (Uint8 a resolución completa, 0 = sin red) y,
+ * si `f` > 1, promediado por bloques como la grilla de la simulación en vivo.
+ */
+export function drainFactorMap(net: Uint8Array, width: number, height: number, f: number, noNetwork: number): Float32Array {
+  const w = f > 1 ? Math.floor(width / f) : width, h = f > 1 ? Math.floor(height / f) : height;
+  const out = new Float32Array(w * h);
+  const ff = Math.max(1, f);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let c = 0;
+      for (let dy = 0; dy < ff; dy++) for (let dx = 0; dx < ff; dx++) if (net[(y * ff + dy) * width + x * ff + dx]) c++;
+      const frac = c / (ff * ff);
+      out[y * w + x] = noNetwork + (1 - noNetwork) * frac;
+    }
   return out;
 }
 

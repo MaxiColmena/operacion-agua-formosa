@@ -59,6 +59,15 @@ export interface Thresholds {
 
 export const THRESHOLD_NONE = 65535;
 
+/** Metadatos de drainage.json (scripts/build-drainage.ts). */
+export interface DrainageMeta {
+  generated: string;
+  source: string;
+  radii: { street: number; corner: number; paved: number };
+  totalKm2: number;
+  entries: { id: string; label: string; group: number; ok: boolean; km2: number; note?: string }[];
+}
+
 export interface AppData {
   meta: TerrainMeta;
   z: Float32Array;
@@ -68,6 +77,9 @@ export interface AppData {
   osm: OsmData | null;
   buildings: Buildings | null;
   thresholds: Thresholds | null;
+  /** Red pluvial relevada por celda (0 = sin red, 1..3 = grupo). */
+  drainage: Uint8Array | null;
+  drainageMeta: DrainageMeta | null;
 }
 
 /** Edificios decodificados de buildings.bin: anillos en coordenadas de celda de la grilla completa. */
@@ -99,7 +111,7 @@ async function json<T>(url: string): Promise<T | null> {
 
 export async function loadAll(): Promise<AppData> {
   const base = `${import.meta.env.BASE_URL}data/`;
-  const [meta, zBuf, mBuf, zonesBuf, zonesMeta, osm, bBuf, bMeta, tBuf, tMeta] = await Promise.all([
+  const [meta, zBuf, mBuf, zonesBuf, zonesMeta, osm, bBuf, bMeta, tBuf, tMeta, dBuf, dMeta] = await Promise.all([
     json<TerrainMeta>(base + 'terrain.json'),
     bin(base + 'terrain.bin'),
     bin(base + 'masks.bin'),
@@ -110,6 +122,8 @@ export async function loadAll(): Promise<AppData> {
     json<Buildings['meta']>(base + 'buildings.json'),
     bin(base + 'thresholds.bin').catch(() => null),
     json<ThresholdsMeta>(base + 'thresholds.json'),
+    bin(base + 'drainage.bin').catch(() => null),
+    json<DrainageMeta>(base + 'drainage.json'),
   ]);
   if (!meta) throw new Error('Falta public/data/terrain.json: correr "npm run data"');
   return {
@@ -121,6 +135,9 @@ export async function loadAll(): Promise<AppData> {
     osm,
     buildings: bBuf ? decodeBuildings(bBuf, meta, bMeta) : null,
     thresholds: tBuf ? decodeThresholds(tBuf, meta, tMeta) : null,
+    // Si el archivo no existe, el servidor de desarrollo devuelve index.html: se descarta por tamaño.
+    drainage: dBuf && dBuf.byteLength === meta.width * meta.height ? new Uint8Array(dBuf) : null,
+    drainageMeta: dMeta,
   };
 }
 

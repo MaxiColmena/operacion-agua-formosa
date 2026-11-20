@@ -46,6 +46,7 @@ Los edificios vienen de Microsoft Global ML Building Footprints. El script `buil
 
 - **Escenario:** lluvia en mm/h o en **mm por minuto** (1 mm = 1 litro por m²), duración, altura del río en Puerto Formosa (con marcas de hoy, alerta, evacuación y 1983), capacidad de desagüe y "falla de la defensa".
 - **Escenarios de referencia:** Nivel 1 (lluvia fuerte), Nivel 2 (temporal severo con el río en alerta), Nivel 3 (extremo con el río en evacuación), **7 días** (el máximo del pronóstico de lluvia del 17/11/2026, 150 mm, concentrado en una tormenta de 3 h; rotulado ESTIMADO), y las crecidas de 1983 y 2015-16. Son **escenarios**, no categorías: para clasificar la altura del río se usa la escala del INA.
+- **Red pluvial relevada:** el equipo relevó dónde hay bocas de tormenta, sumideros y conductos (casco céntrico, 9 de Julio, Madariaga, grandes avenidas y puntos en barrios). `scripts/build-drainage.ts` los ubica sobre OpenStreetMap: hoy cubren ~6,6 km² y se ubicaron 23 de 27 entradas. Ahí el desagüe es el 100 % del valor elegido; en el resto de la ciudad (solo cunetas e infiltración), el 50 %. Se ve con la capa «Bocas de tormenta». Es una **referencia sin verificar en campo**: no tenemos diámetros ni estado de limpieza. La lista está en `src/data/drainage-network.ts`.
 - **Escala del INA:** el dato observado muestra su categoría oficial (por ejemplo, 4,96 m = aguas medias el 17/11/2026). El INA no publica los límites de sus cinco categorías en metros, así que la herramienta **no clasifica alturas hipotéticas**: muestra lecturas reales ya clasificadas por el INA como referencia.
 - **Hacer llover:** la simulación corre en vivo, a 5, 15 o 30 minutos simulados por segundo.
 - **Orden de afectación:** lista de calles, barrios e infraestructura (hospitales, salud, escuelas, bomberos y policía, servicios, municipio y asistencia social) ordenada por el momento en que el agua los alcanza. Cada uno indica su **nivel de referencia** (1º, 2º o 3º).
@@ -62,11 +63,11 @@ Los edificios vienen de Microsoft Global ML Building Footprints. El script `buil
 | Escena 3D | `src/scene/MapScene.ts` | Three.js: terreno con curvas de nivel, agua, edificios, columnas de luz y lluvia |
 | Análisis | `src/analysis.ts` | Cruza el agua con barrios e infraestructura: estado, primer contacto y nivel 1º/2º/3º |
 | Interfaz | `src/App.tsx` | Paneles de escenario, orden de afectación, capas y supuestos |
-| Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua) y `build-zones` (zonas 1º/2º/3º a 30 m) |
+| Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua), `build-drainage` (red pluvial relevada) y `build-zones` (zonas 1º/2º/3º a 30 m) |
 
 **Supuesto clave a confirmar:** el **cero de escala de Puerto Formosa**. Se usa **47,30 m IGN**, deducido del dato oficial del Gobierno de Formosa (08/12/2015): la cota IGN 59 m equivale a 11,70 m de escala en el puerto. Falta confirmarlo con el INA y verificar la diferencia de dátum con el terreno (FABDEM está en EGM2008). Si cambia, se edita en `src/sim/scenarios.ts` y se corren `npm run data:zones` y `npm run data:thresholds`.
 
-**Defensa:** el dato oficial habla de ~15 km de terraplén (otras notas de prensa dicen ~20 km). La traza del modelo mide ~23,5 km porque une 5 tramos reales de OpenStreetMap con conectores estimados. Se usa como barrera, con el coronamiento oficial (11,70 m de escala).
+**Defensa:** el dato oficial habla de ~15 km de terraplén (otras notas de prensa dicen ~20 km). La traza del modelo mide ~38,6 km: une los 5 tramos reales de OpenStreetMap (los únicos mapeados) con conectores estimados que **bordean la zona edificada** sin cortar manzanas (`scripts/route-defensa.ts`: camino de menor costo que evita edificios y cuerpos de agua; al norte sigue el riacho Formosa). Antes los conectores eran rectas que cruzaban barrios. Es más larga que la real porque sigue el borde irregular de la ciudad: para la versión final hay que pedir la traza oficial a la Provincia. Se usa como barrera, con el coronamiento oficial (11,70 m de escala).
 
 ### Qué NO hace (para no pisar a otros equipos)
 
@@ -191,7 +192,7 @@ Según el monitor de alturas que toma la lectura de Prefectura/INA, el umbral de
 ## 4. Cómo se inunda Formosa Capital
 
 - **Ubicación:** margen derecha del río Paraguay, ~26°11′S 58°10′O, altura media ~57 m s. n. m. Cursos de agua urbanos y periurbanos: riacho Formosa, riacho El Pucú, riacho Chajá o Sian, y la laguna Oca (antiguo cauce del Paraguay, Reserva de Biosfera desde 2001).
-- **Defensa:** la ciudad tiene una **línea de defensa contra inundaciones** (~15 km según el dato oficial; la prensa también cita ~20 km; la traza del modelo mide ~23,5 km, ver sección 0). Quienes viven **fuera** de ella son los primeros afectados en las crecidas.
+- **Defensa:** la ciudad tiene una **línea de defensa contra inundaciones** (~15 km según el dato oficial; la prensa también cita ~20 km; la traza del modelo mide ~38,6 km, ver sección 0). Quienes viven **fuera** de ella son los primeros afectados en las crecidas.
 - **Barrios fuera del anillo** citados en la crecida de diciembre de 2015: **La Floresta, Laguna Siam y Fachini**. También se citan barrios ribereños de la "zona de islas" y la laguna Oca.
 - **Problema pluvial:** hay crónicas de **70 mm en una hora** (entre las 7 y las 8 de la mañana) que colapsaron el centro y los barrios, con calles de tierra en el norte de la ciudad que dificultan el acceso de maquinaria. En marzo de 2021 se acumularon **180 mm**, con agua dentro de viviendas en varios barrios.
 - **Estaciones de bombeo del recinto:** el informe semanal del INA sobre la cuenca del Paraguay incluye una tabla con la **condición de las estaciones de bombeo del recinto de defensa de la ciudad de Formosa en función del nivel del río**. Es un dato clave para el escenario combinado. La tabla viene como imagen en el PDF y hay que transcribirla a mano.
@@ -407,7 +408,7 @@ Comparar y detectar cambios en imágenes satelitales es el desafío del **Equipo
 - **MDE:** ~2 m de error vertical en MDE-Ar v2.1. En una llanura, eso puede ser más que la diferencia entre "seco" y "bajo agua".
 - **Escala puntual:** la altura del río se mide en un punto (el puerto), y el agua no sube igual en toda la costa.
 - **Defensa y bombas:** se asume que la defensa funciona salvo que el operador active "falla". El estado real de las bombas no es público en tiempo real.
-- **Desagües pluviales:** no hay datos públicos de la red, así que la capa pluvial es **indicativa**.
+- **Desagües pluviales:** la red está relevada solo en parte (ubicación, sin diámetros ni estado de limpieza) y el reparto 100 % / 50 % es un supuesto, así que la capa pluvial es **indicativa**. Cuatro puntos no se pudieron ubicar en OSM (Moreno y 9 de Julio, González Lelong y Gendarmería, Los Constituyentes y Beata Nazaria, Av. Chaco y Moreno).
 - **Tiempo:** los minutos de llegada del agua sirven para **ordenar**, no para planificar al minuto.
 - **Datos de exposición:** la infraestructura sale de OpenStreetMap (consulta del 19/11/2026). Pueden faltar o sobrar establecimientos.
 - **Escala del INA:** el INA no publica los límites de sus categorías en metros, así que solo se muestran categorías de lecturas reales.

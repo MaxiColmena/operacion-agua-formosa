@@ -1,7 +1,8 @@
 {
-  "generated": "2026-11-20T22:26:09.027Z",
+  "generated": "2026-11-20T22:50:29.365Z",
   "resolution": "30 m",
   "threshold": 0.15,
+  "drainage": "red pluvial relevada: 100 % del desagüe; resto: 50 %",
   "levels": [
     {
       "id": "n1",
@@ -25,18 +26,18 @@
   "stats": [
     {
       "id": "n1",
-      "km2": 4.1,
-      "seconds": 74
+      "km2": 8.15,
+      "seconds": 89
     },
     {
       "id": "n2",
-      "km2": 71.53,
-      "seconds": 140
+      "km2": 71.84,
+      "seconds": 126
     },
     {
       "id": "n3",
-      "km2": 91.23,
-      "seconds": 167
+      "km2": 91.2,
+      "seconds": 126
     }
   ]
 }

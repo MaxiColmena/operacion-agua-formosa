@@ -19,6 +19,8 @@ export const ASSUMPTIONS: Assumptions = {
   wetThreshold: 0.15,
   drainFactorHighRiver: 0.4,
   alertStage: 7.8,
+  // Sin red pluvial relevada (bocas de tormenta, sumideros) solo quedan cunetas e infiltración: la mitad.
+  drainNoNetwork: 0.5,
 };
 
 export const RIVER_REF = {
