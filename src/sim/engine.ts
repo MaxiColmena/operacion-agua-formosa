@@ -23,7 +23,7 @@ export interface Scenario {
   riverStage: number;
   /** Capacidad de desagüe pluvial + infiltración en mm/h (supuesto declarado). */
   drainMmH: number;
-  /** Si la defensa falla, su coronamiento deja de actuar como barrera. */
+  /** Si la defensa falla, se abre la brecha (MASK_BREACH) frente al puerto; el resto del anillo sigue en pie. */
   defenseFails: boolean;
 }
 
@@ -43,8 +43,8 @@ export interface Assumptions {
 }
 
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
-  gaugeZero: 47.0,
-  defenseCrest: 60.5,
+  gaugeZero: 47.3,
+  defenseCrest: 59.0,
   manning: 0.045,
   wetThreshold: 0.15,
   drainFactorHighRiver: 0.4,
@@ -59,6 +59,8 @@ export interface Masks {
   defense: Uint8Array;
   /** 1 = cuerpo de agua permanente (laguna, riacho) que no cuenta como "afectado". */
   water: Uint8Array;
+  /** 1 = celda de la brecha simulada (parte de la defensa que se rompe con `defenseFails`). */
+  breach: Uint8Array;
 }
 
 export class FloodSim {
@@ -148,13 +150,29 @@ export class FloodSim {
     }
   }
 
-  /** Terreno efectivo: el terreno con la defensa elevada a su coronamiento (salvo falla). */
+  /**
+   * Terreno efectivo: el terreno con la defensa elevada a su coronamiento.
+   * Con falla, solo las celdas de la brecha pierden el coronamiento y además se erosionan hasta el pie
+   * del terraplén (la cota más baja del terreno natural a ~60 m a los costados): en el MDE la propia
+   * traza puede tener 1–2 m de relleno que en una rotura real se lava.
+   */
   private buildEffectiveTerrain() {
-    const { z } = this.grid;
-    const { defense } = this.masks;
+    const { z, width: w, height: h, cellX, cellY } = this.grid;
+    const { defense, breach } = this.masks;
     const crest = this.assumptions.defenseCrest;
+    const fails = this.scenario.defenseFails;
+    const r = Math.max(1, Math.round(60 / Math.min(cellX, cellY)));
     for (let i = 0; i < this.n; i++) {
-      this.zEff[i] = defense[i] && !this.scenario.defenseFails ? Math.max(z[i], crest) : z[i];
+      if (!defense[i]) { this.zEff[i] = z[i]; continue; }
+      if (!(fails && breach[i])) { this.zEff[i] = Math.max(z[i], crest); continue; }
+      const x = i % w, y = (i / w) | 0;
+      let floor = z[i];
+      for (let yy = Math.max(0, y - r); yy <= Math.min(h - 1, y + r); yy++)
+        for (let xx = Math.max(0, x - r); xx <= Math.min(w - 1, x + r); xx++) {
+          const j = yy * w + xx;
+          if (!defense[j] && z[j] < floor) floor = z[j];
+        }
+      this.zEff[i] = floor;
     }
   }
 
@@ -318,22 +336,26 @@ export class FloodSim {
   }
 }
 
-/** Bits de la máscara combinada (public/data/masks.bin). */
-export const MASK_RIVER = 1, MASK_DEFENSE = 2, MASK_WATER = 4;
+/** Bits de la máscara combinada (public/data/masks.bin). MASK_BREACH: tramo de la defensa que se rompe. */
+export const MASK_RIVER = 1, MASK_DEFENSE = 2, MASK_WATER = 4, MASK_BREACH = 8;
 
 export function splitMasks(m: Uint8Array): Masks {
   const river = new Uint8Array(m.length), defense = new Uint8Array(m.length), water = new Uint8Array(m.length);
+  const breach = new Uint8Array(m.length);
   for (let i = 0; i < m.length; i++) {
     river[i] = m[i] & MASK_RIVER ? 1 : 0;
     defense[i] = m[i] & MASK_DEFENSE ? 1 : 0;
     water[i] = m[i] & MASK_WATER ? 1 : 0;
+    breach[i] = m[i] & MASK_DEFENSE && m[i] & MASK_BREACH ? 1 : 0;
   }
-  return { river, defense, water };
+  return { river, defense, water, breach };
 }
 
 /**
  * Remuestrea la grilla por un factor entero (2 = celdas de ~60 m) para la simulación en vivo.
  * Terreno: promedio. Río: mayoría. Defensa: cualquiera (no se pierden diques finos). Agua: mayoría.
+ * Brecha: cualquiera. Con "cualquiera", una línea de defensa 4-conexa a 30 m sigue 4-conexa a 60 m
+ * (dos celdas vecinas caen en el mismo bloque o en bloques vecinos), así que el anillo sigue cerrado.
  */
 export function downsample(grid: Grid, mask: Uint8Array, f: number): { grid: Grid; mask: Uint8Array } {
   if (f <= 1) return { grid, mask };
@@ -342,18 +364,18 @@ export function downsample(grid: Grid, mask: Uint8Array, f: number): { grid: Gri
   const m = new Uint8Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      let sum = 0, river = 0, water = 0, def = 0, zMaxDef = -Infinity;
+      let sum = 0, river = 0, water = 0, def = 0, breach = 0, zMaxDef = -Infinity;
       for (let dy = 0; dy < f; dy++)
         for (let dx = 0; dx < f; dx++) {
           const i = (y * f + dy) * grid.width + x * f + dx;
           sum += grid.z[i];
           if (mask[i] & MASK_RIVER) river++;
           if (mask[i] & MASK_WATER) water++;
-          if (mask[i] & MASK_DEFENSE) { def++; zMaxDef = Math.max(zMaxDef, grid.z[i]); }
+          if (mask[i] & MASK_DEFENSE) { def++; zMaxDef = Math.max(zMaxDef, grid.z[i]); if (mask[i] & MASK_BREACH) breach++; }
         }
       const k = y * w + x;
       z[k] = sum / (f * f);
-      if (def) { m[k] |= MASK_DEFENSE; z[k] = Math.max(z[k], zMaxDef); }
+      if (def) { m[k] |= MASK_DEFENSE | (breach ? MASK_BREACH : 0); z[k] = Math.max(z[k], zMaxDef); }
       else if (river * 2 > f * f) m[k] |= MASK_RIVER;
       else if (water * 2 > f * f) m[k] |= MASK_WATER;
     }

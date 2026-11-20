@@ -5,12 +5,16 @@ import type { Assumptions, Scenario } from './engine';
  * Cada valor es un SUPUESTO declarado, no un dato oficial.
  */
 export const ASSUMPTIONS: Assumptions = {
-  // Superficie del río en el MDE (mediana medida en las celdas del cauce: 50,0 m, EGM2008) menos una
-  // altura típica de la escala durante la toma satelital (~3,7 m).
-  // Falta el cero de escala IGN oficial de Puerto Formosa (INA): reemplazar cuando se consiga.
-  gaugeZero: 46.3,
-  // Defensa pensada por encima de la crecida de 1983 (10,73 m): coronamiento supuesto ≈ 11,7 m de escala.
-  defenseCrest: 58.0,
+  // Cero de la escala de Puerto Formosa = 47,30 m IGN, deducido del dato oficial (Gobierno de Formosa,
+  // 08/12/2015): "cota IGN 59 m = 11,70 m en el hidrómetro del puerto" (59 − 11,70 = 47,30).
+  // OJO DATUM: las cotas oficiales son IGN (SRVN); el terreno FABDEM está en EGM2008. En la zona la
+  // diferencia es probablemente menor a 1 m, pero NO está verificada: sigue siendo un supuesto a
+  // verificar con el INA (cero de escala oficial) y el IGN.
+  // (El valor anterior, 46,3 m, salía de la superficie del río en el MDE menos ~3,7 m de escala.)
+  gaugeZero: 47.3,
+  // Coronamiento del anillo de defensa: cota IGN 59 m (= 11,70 m de escala), mismo dato oficial de 2015.
+  // Misma salvedad de datum. En 2018 se informó "cota 12 m" (no usada).
+  defenseCrest: 59.0,
   manning: 0.045,
   wetThreshold: 0.15,
   drainFactorHighRiver: 0.4,
@@ -58,7 +62,12 @@ export const PRESETS: NamedScenario[] = [
   {
     id: 'h1983', short: 'Histórico', label: 'Crecida 1983 + lluvia',
     rainMmH: 50, rainHours: 2, riverStage: 10.73, drainMmH: 15, defenseFails: false, afterHours: 1,
-    why: 'Río al récord de 1983 (10,73 m) con 100 mm de lluvia. Probar también con "falla de defensa".',
+    why: 'Río al récord de 1983 (10,73 m) con 100 mm de lluvia. Probar también con "Rotura de la defensa" (opciones avanzadas).',
+  },
+  {
+    id: 'h2015', short: '2015-16', label: 'Crecida 2015-16 + lluvia',
+    rainMmH: 50, rainHours: 2, riverStage: 9.45, drainMmH: 15, defenseFails: false, afterHours: 1,
+    why: 'Río a 9,45 m (dic. 2015, emergencia hídrica, ~800 familias evacuadas) con 100 mm de lluvia. La defensa (11,70 m) contiene al río; se inundan los barrios fuera del anillo.',
   },
 ];
 
