@@ -730,7 +730,8 @@ a.src .icon-svg { color: var(--text-3); }
     max-height: calc(100dvh - 108px - var(--nav-h) - 24px); z-index: 6; animation: none;
   }
   .evac-alert { top: calc(108px + env(safe-area-inset-top)); left: var(--s2); right: var(--s2); transform: none; flex-wrap: wrap; row-gap: 0; padding: var(--s2) var(--s3); animation: none; }
-  .impact { bottom: calc(var(--nav-h) + var(--s3)); padding: var(--s2) var(--s3); }
+  .impact { left: var(--s2); right: var(--s2); bottom: calc(var(--nav-h) + var(--s2)); transform: none; justify-content: center; padding: var(--s2) var(--s3); animation: none; }
+  .impact .im-item span:last-child { white-space: nowrap; }
   .app:not([data-sheet='none']) .impact { display: none; }
   .impact .im-item span:last-child { font-size: var(--fs-sm); }
   .freecam-help { display: none; }
