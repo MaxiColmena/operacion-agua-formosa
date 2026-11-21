@@ -16,6 +16,7 @@ import {
 import { validate, type ValidationRow } from './validation';
 import { WelcomeGuide, guideSeen, markGuideSeen } from './ui/Guide';
 import { TipLayer } from './ui/TipLayer';
+import { Icon } from './ui/Icon';
 import { fmtStage, stageContext, thresholdState, RISK_MARGIN, type ThresholdState } from './ui/threshold';
 
 const SIM_FACTOR = 2; // celdas de ~60 m en vivo
@@ -25,9 +26,6 @@ const DEFENSE_CREST_STAGE = +(ASSUMPTIONS.defenseCrest - ASSUMPTIONS.gaugeZero).
 const CAT_LABEL: Record<FacilityCat, string> = {
   hospital: 'Hospital', salud: 'Salud', escuela: 'Escuela', seguridad: 'Bomberos / Policía',
   servicios: 'Agua / Energía', publico: 'Municipio / Asistencia social', transporte: 'Transporte',
-};
-const CAT_ICON: Record<FacilityCat, string> = {
-  hospital: '✚', salud: '+', escuela: '▲', seguridad: '◆', servicios: '⚡', publico: '⌂', transporte: '✈',
 };
 const TIER_LABEL = ['—', '1º', '2º', '3º'];
 const THR_ROW: Record<ThresholdState, string> = { alcanzado: 'st-afectado', riesgo: 'st-atencion', lejos: '' };
@@ -69,6 +67,9 @@ export default function App() {
   const [showGuide, setShowGuide] = useState(() => !guideSeen());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showView, setShowView] = useState(false);
+  /** Mobile only: which bottom sheet is open (panels become sheets under 760px). */
+  const [sheet, setSheet] = useState<'left' | 'right' | 'dock' | null>('left');
+  const toggleSheet = (s: 'left' | 'right' | 'dock') => setSheet((cur) => (cur === s ? null : s));
   /** Orden de las listas de barrios e infraestructura: por la simulación o por la altura del río a la que se afectan. */
   const [order, setOrder] = useState<'sim' | 'rio'>('sim');
   const closeGuide = () => { markGuideSeen(); setShowGuide(false); };
@@ -291,42 +292,49 @@ export default function App() {
     : { cls: 'idle', text: 'Listo para simular: tocá «Hacer llover».' };
 
   return (
-    <div className="app" ref={appRef}>
+    <div className="app" ref={appRef} data-sheet={sheet ?? 'none'}>
       <div ref={mountRef} className="viewport" />
       {!data && <div className="loading"><div className="spinner" />Cargando terreno de Formosa…</div>}
 
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">◈</span>
+          <img className="brand-mark" src="/icons/icon.svg" alt="" width={36} height={36} />
           <div>
             <h1>Operación Agua</h1>
-            <p>Simulador de afectaciones por lluvia y crecida · Formosa Capital</p>
+            <p>Lluvia y crecida · Formosa Capital</p>
           </div>
         </div>
-        <div className="sources">
-          <button className="tag tag-help" onClick={() => setShowGuide(true)} data-tip="Guía rápida: qué es este simulador y cómo usarlo en 4 pasos">
-            ? ¿Cómo se usa?
-          </button>
-          <span className="tag tag-obs" data-tip={`Altura real del río Paraguay medida en Puerto Formosa (${RIVER_REF.observed.trend}). Categoría según la escala del INA. Fuente: ${RIVER_REF.observed.source}.`}>
-            OBSERVADO · río {fmtStage(RIVER_REF.observed.stage)} · {RIVER_REF.observed.inaCategory} (INA) · {RIVER_REF.observed.date}
+        <div className="sources" aria-label="Fuentes: dato observado, previsión del INA y escenario hipotético">
+          <span className="src src-obs" data-tip={`Altura real del río Paraguay medida en Puerto Formosa (${RIVER_REF.observed.trend}). Categoría según la escala del INA. Fuente: ${RIVER_REF.observed.source}.`}>
+            <small><i aria-hidden="true" />Observado · {RIVER_REF.observed.date}</small>
+            <b>Río {fmtStage(RIVER_REF.observed.stage)} · {RIVER_REF.observed.inaCategory}</b>
           </span>
-          <a className="tag tag-ina" href={FORECAST_INA.url} target="_blank" rel="noreferrer"
+          <a className="src src-ina" href={FORECAST_INA.url} target="_blank" rel="noreferrer"
             data-tip={`Estimación del INA, no una medición. ${FORECAST_INA.text} Fuente: ${FORECAST_INA.source}. Clic para abrir el reporte.`}>
-            PREVISIÓN INA · ~{fmtStage(FORECAST_INA.stage)} ± {FORECAST_INA.margin.toFixed(1).replace('.', ',')} al {FORECAST_INA.until.slice(0, 5)} ↗
+            <small><i aria-hidden="true" />Previsión INA · al {FORECAST_INA.until.slice(0, 5)}</small>
+            <b>~{fmtStage(FORECAST_INA.stage)} ± {FORECAST_INA.margin.toFixed(1).replace('.', ',')} <Icon name="external" size={13} /></b>
           </a>
-          <span className="tag tag-user" data-tip="Lo que ves en el mapa es un escenario que elegís vos: hipotético, no un pronóstico.">ESCENARIO DEL USUARIO · hipotético</span>
+          <span className="src src-user" data-tip="Lo que ves en el mapa es un escenario que elegís vos: hipotético, no un pronóstico.">
+            <small><i aria-hidden="true" />Escenario del usuario</small>
+            <b>Hipotético</b>
+          </span>
         </div>
+        <button className="btn ghost help-btn" onClick={() => setShowGuide(true)} data-tip="Guía rápida: qué es este simulador y cómo usarlo en 4 pasos">
+          <Icon name="help" /><span>Cómo se usa</span>
+        </button>
       </header>
 
       <aside className={`panel left ${collapsed.left ? 'collapsed' : ''}`}>
-        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, left: !c.left }))}
-          data-tip={collapsed.left ? 'Mostrar el panel del escenario' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel del escenario">{collapsed.left ? '›' : '‹'}</button>
-        <h2>Escenario</h2>
+        <div className="panel-head">
+          <h2>Escenario</h2>
+          <button className="icon-btn collapse" onClick={() => setCollapsed((c) => ({ ...c, left: !c.left }))}
+            data-tip={collapsed.left ? 'Mostrar el panel del escenario' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel del escenario"
+            aria-expanded={!collapsed.left}><Icon name={collapsed.left ? 'chevronRight' : 'chevronLeft'} /></button>
+        </div>
 
         <div className="step">
           <h3 className="step-h"><span className="step-n">1</span>Elegí un escenario</h3>
-          <p className="step-help">Cada botón carga una combinación típica de lluvia y altura del río.</p>
-          <div className="presets">
+          <div className="presets" role="group" aria-label="Escenarios predefinidos">
             {PRESETS.map((p) => (
               <button key={p.id} className={`preset ${presetId === p.id ? 'on' : ''} lvl-${p.id}`} onClick={() => applyPreset(p.id)}
                 data-tip={`${p.label}: ${p.why}`} aria-pressed={presetId === p.id}>
@@ -335,22 +343,25 @@ export default function App() {
             ))}
           </div>
           {preset ? <p className="why">{preset.why}</p> : <p className="why custom">Escenario personalizado (cambiaste algún valor a mano).</p>}
-          <p className="why assumption" data-tip={`Ritmo de subida supuesto: ~${RISE_REF.cmPerDay} cm/día (${RISE_REF.source}). No es un pronóstico.`}>
-            <b>Supuesto:</b>{' '}
-            {daysToRise(scenario.riverStage) > 0
-              ? <>el río sube de {fmtStage(RIVER_REF.observed.stage)} (hoy) a {fmtStage(scenario.riverStage)} en <b>~{daysToRise(scenario.riverStage)} días</b> (ritmo de oct. 2026, ~{RISE_REF.cmPerDay} cm/día) y se queda ahí;</>
-              : <>el río se mantiene en {fmtStage(scenario.riverStage)};</>}
-            {' '}llueven {(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm en {fmtHours(scenario.rainHours)}. Horizonte simulado: {fmtHours(scenario.rainHours + 1)}.
-            {' '}<span className="conf">Confianza baja</span>: hipotético, no es un pronóstico.
-          </p>
+          <details className="assumption" data-tip={`Ritmo de subida supuesto: ~${RISE_REF.cmPerDay} cm/día (${RISE_REF.source}). No es un pronóstico.`}>
+            <summary>
+              <span>Horizonte {fmtHours(scenario.rainHours + 1)} · <span className="conf">confianza baja</span></span>
+              <Icon name="chevronDown" size={16} />
+            </summary>
+            <p>
+              {daysToRise(scenario.riverStage) > 0
+                ? <>El río sube de {fmtStage(RIVER_REF.observed.stage)} (hoy) a {fmtStage(scenario.riverStage)} en <b>~{daysToRise(scenario.riverStage)} días</b> (ritmo de oct. 2026, ~{RISE_REF.cmPerDay} cm/día) y se queda ahí;</>
+                : <>El río se mantiene en {fmtStage(scenario.riverStage)};</>}
+              {' '}llueven {(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm en {fmtHours(scenario.rainHours)}. Escenario hipotético, no es un pronóstico.
+            </p>
+          </details>
         </div>
 
         <div className="step">
-          <h3 className="step-h"><span className="step-n">2</span>Ajustá <em>(opcional)</em></h3>
-          <p className="step-help">Mové los controles para probar tu propio escenario.</p>
+          <h3 className="step-h"><span className="step-n">2</span>Ajustá <em>opcional</em></h3>
           <section>
             <label className="row" data-tip="Intensidad: cuántos milímetros de agua caen por hora. 40 mm/h ya es una tormenta fuerte; más de 100 mm/h es excepcional.">
-              <span>Lluvia (intensidad)</span><b className="mono">{scenario.rainMmH} mm/h</b>
+              <span>Lluvia (intensidad)</span><b className="num">{scenario.rainMmH} mm/h</b>
             </label>
             <input type="range" min={0} max={200} step={5} value={scenario.rainMmH} onChange={(e) => update({ rainMmH: +e.target.value })}
               aria-label="Intensidad de la lluvia en milímetros por hora" data-tip="Arrastrá para cambiar cuánta lluvia cae por hora" />
@@ -360,24 +371,24 @@ export default function App() {
                 onChange={(e) => update({ rainMmH: Math.max(0, Math.min(200, Math.round(+e.target.value * 60))) })}
                 aria-label="Lluvia en milímetros por minuto" data-tip="La misma intensidad, expresada por minuto. Podés escribir el valor directamente."
               />
-              <span>mm por minuto = litros por m² por minuto</span>
+              <span>mm/min (litros por m² por minuto)</span>
             </div>
             <label className="row" data-tip="Cuánto tiempo dura la lluvia. Después la simulación sigue 1 hora más para ver cómo escurre el agua.">
-              <span>Duración de la lluvia</span><b className="mono">{fmtHours(scenario.rainHours)}</b>
+              <span>Duración de la lluvia</span><b className="num">{fmtHours(scenario.rainHours)}</b>
             </label>
             <input type="range" min={0.25} max={6} step={0.25} value={scenario.rainHours} onChange={(e) => update({ rainHours: +e.target.value })}
               aria-label="Duración de la lluvia" data-tip="Arrastrá para cambiar cuánto dura la lluvia" />
-            <div className="hint mono">Total: {(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm ({(scenario.rainMmH * scenario.rainHours).toFixed(0)} L/m²)</div>
+            <div className="hint">Total: <b className="num">{(scenario.rainMmH * scenario.rainHours).toFixed(0)} mm</b> ({(scenario.rainMmH * scenario.rainHours).toFixed(0)} L/m²)</div>
           </section>
 
           <section>
             <label className="row" data-tip="Altura del río Paraguay en la escala de Puerto Formosa. Con el río alto, el agua de lluvia no puede salir y el río entra a los bajos.">
-              <span>Altura del río Paraguay</span><b className={`mono river-${riverCat}`}>{scenario.riverStage.toFixed(2)} m</b>
+              <span>Altura del río Paraguay</span><b className={`num river-${riverCat}`}>{scenario.riverStage.toFixed(2)} m</b>
             </label>
             {/* Hasta 13 m: por encima del coronamiento de la defensa (11,70 m) para poder mostrar el desborde. */}
             <input type="range" min={1.5} max={13} step={0.05} value={scenario.riverStage} onChange={(e) => update({ riverStage: +e.target.value })}
               aria-label="Altura del río Paraguay en metros" data-tip="Arrastrá para subir o bajar el río. Cambiarlo reinicia la simulación." />
-            <div className="scale">
+            <div className="scale" role="group" aria-label="Alturas de referencia del río: tocá una para usarla">
               {[
                 { v: RIVER_REF.observed.stage, t: 'hoy', d: `Altura medida el ${RIVER_REF.observed.date} (${RIVER_REF.observed.inaCategory} según el INA)` },
                 { v: RIVER_REF.alert, t: 'alerta', d: 'Nivel de alerta del INA' },
@@ -390,21 +401,20 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <div className="hint">Tocá una marca (hoy, alerta, evacuación, 1983, defensa) para usar esa altura. Cambiar el río reinicia la simulación.</div>
             <div className="hint" data-tip={`Escala del INA (frecuencia 1991–2020): ${INA_SCALE.join(' · ')}. El INA no publica los límites en metros, así que no clasificamos alturas hipotéticas. Lecturas reales clasificadas por el INA: ${INA_CATEGORY_REF.map((r) => `${fmtStage(r.stage)} = ${r.cat} (${r.date})`).join('; ')}.`}>
-              Escala INA: hoy <b>{RIVER_REF.observed.inaCategory}</b>. Referencias reales: {INA_CATEGORY_REF.slice(0, 2).map((r) => `${fmtStage(r.stage)} = ${r.cat}`).join(' · ')}. Alerta {fmtStage(RIVER_REF.alert)} · evacuación {fmtStage(RIVER_REF.evacuation)}.
+              Tocá una marca para usar esa altura. Escala INA hoy: <b>{RIVER_REF.observed.inaCategory}</b> · alerta {fmtStage(RIVER_REF.alert)} · evacuación {fmtStage(RIVER_REF.evacuation)}.
             </div>
           </section>
 
           <button className={`advanced-toggle ${showAdvanced ? 'open' : ''}`} onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced}
             data-tip="Desagüe de la ciudad y falla de la defensa costera. Ya vienen con valores razonables.">
-            <span>{showAdvanced ? '▾' : '▸'}</span> Opciones avanzadas
+            <Icon name={showAdvanced ? 'chevronDown' : 'chevronRight'} size={16} /> Opciones avanzadas
             {!showAdvanced && (scenario.defenseFails ? <em className="adv-flag">defensa falla</em> : null)}
           </button>
           {showAdvanced && (
             <section className="advanced">
               <label className="row" data-tip="Cuánta agua por hora se va por los desagües pluviales y se infiltra en el suelo. Más alto = la ciudad drena mejor.">
-                <span>Desagüe + infiltración</span><b className="mono">{scenario.drainMmH} mm/h</b>
+                <span>Desagüe + infiltración</span><b className="num">{scenario.drainMmH} mm/h</b>
               </label>
               <input type="range" min={0} max={40} step={1} value={scenario.drainMmH} onChange={(e) => update({ drainMmH: +e.target.value })}
                 aria-label="Desagüe más infiltración en milímetros por hora" data-tip="Arrastrá para cambiar cuánto drena la ciudad" />
@@ -426,44 +436,47 @@ export default function App() {
           <h3 className="step-h"><span className="step-n">3</span>Simulá</h3>
           <div className="controls">
             {stats?.running ? (
-              <button className="btn primary" onClick={() => send({ type: 'pause' })} data-tip="Congela la simulación en este momento">❚❚ Pausar</button>
+              <button className="btn primary" onClick={() => send({ type: 'pause' })} data-tip="Congela la simulación en este momento"><Icon name="pause" />Pausar</button>
             ) : (
-              <button className="btn primary big" onClick={() => send({ type: 'play' })}
+              <button className="btn primary" onClick={() => send({ type: 'play' })}
                 data-tip="Empieza a llover sobre la ciudad con el escenario elegido. El tiempo corre acelerado.">
-                ▶ {stats && stats.time > 0 && !stats.finished ? 'Seguir' : 'Hacer llover'}
+                <Icon name="play" />{stats && stats.time > 0 && !stats.finished ? 'Seguir' : 'Hacer llover'}
               </button>
             )}
-            <button className="btn" onClick={() => send({ type: 'reset' })} data-tip="Vuelve a cero: saca el agua de lluvia y deja solo el río">↺ Reiniciar</button>
-            <label className="speed" data-tip="Velocidad: cuántos minutos simulados pasan por cada segundo real">
-              <span>Velocidad</span>
-              <select value={speed} onChange={(e) => setSpeed(+e.target.value)} aria-label="Velocidad de la simulación">
-                <option value={300}>5 min/s</option>
-                <option value={900}>15 min/s</option>
-                <option value={1800}>30 min/s</option>
-              </select>
-            </label>
+            <button className="btn" onClick={() => send({ type: 'reset' })} data-tip="Vuelve a cero: saca el agua de lluvia y deja solo el río"><Icon name="reset" />Reiniciar</button>
+          </div>
+          <div className="field-row" data-tip="Velocidad: cuántos minutos simulados pasan por cada segundo real">
+            <span id="speed-label">Velocidad</span>
+            <div className="seg" role="radiogroup" aria-labelledby="speed-label">
+              {[[300, '5 min/s'], [900, '15 min/s'], [1800, '30 min/s']].map(([v, t]) => (
+                <button key={v} role="radio" aria-checked={speed === v} className={speed === v ? 'on' : ''} onClick={() => setSpeed(+v)}>{t}</button>
+              ))}
+            </div>
           </div>
           <div className={`status-line st-${phase.cls}`} role="status" aria-live="polite"><i />{phase.text}</div>
           <div className="timeline" data-tip="Barra de tiempo: la marca amarilla indica cuándo para de llover; después se simula 1 hora más de escurrimiento.">
             <div className="bar"><i style={{ width: `${Math.min(100, ((stats?.time ?? 0) / totalSeconds) * 100)}%` }} /><em style={{ left: `${(scenario.rainHours / (scenario.rainHours + 1)) * 100}%` }} /></div>
-            <div className="row mono small"><span>{fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')}</span><span>{raining ? 'lloviendo' : stats?.finished ? 'fin' : stats && stats.time > scenario.rainHours * 3600 ? 'escurriendo' : ''}</span><span>{fmtHours(scenario.rainHours + 1)}</span></div>
+            <div className="row small num"><span>{fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')}</span><span>{raining ? 'lloviendo' : stats?.finished ? 'fin' : stats && stats.time > scenario.rainHours * 3600 ? 'escurriendo' : ''}</span><span>{fmtHours(scenario.rainHours + 1)}</span></div>
           </div>
         </div>
       </aside>
 
       <aside className={`panel right ${collapsed.right ? 'collapsed' : ''}`}>
-        <button className="collapse" onClick={() => setCollapsed((c) => ({ ...c, right: !c.right }))}
-          data-tip={collapsed.right ? 'Mostrar los resultados' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel de resultados">{collapsed.right ? '‹' : '›'}</button>
-        <h2 className="right-h">Resultados</h2>
-        <p className="step-help">Se actualizan en vivo mientras llueve. Hacé clic en un elemento de la lista para verlo en el mapa.</p>
+        <div className="panel-head">
+          <button className="icon-btn collapse" onClick={() => setCollapsed((c) => ({ ...c, right: !c.right }))}
+            data-tip={collapsed.right ? 'Mostrar los resultados' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel de resultados"
+            aria-expanded={!collapsed.right}><Icon name={collapsed.right ? 'chevronLeft' : 'chevronRight'} /></button>
+          <h2>Resultados</h2>
+          <span className="panel-sub">en vivo</span>
+        </div>
         <div className="stats">
           <Stat label="Tiempo simulado" value={fmtTime(stats?.time ?? 0).replace('t=0 (río)', '0 min')} tip="Tiempo transcurrido dentro de la simulación (no tiempo real)" />
           <Stat label="Lluvia caída" value={`${(stats?.rainMm ?? 0).toFixed(0)} mm`} tip="Milímetros de lluvia acumulados hasta ahora (1 mm = 1 litro por m²)" />
-          <Stat label="Calles que podrían cortarse" value={<CountUp value={streets?.impassableKm ?? 0} decimals={1} suffix=" km" />} sub={`${(streets?.curbKm ?? 0).toFixed(1)} km con agua sobre el cordón`} accent
+          <Stat label="Calles que podrían cortarse" value={<CountUp value={streets?.impassableKm ?? 0} decimals={1} suffix=" km" />} sub={`${(streets?.curbKm ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km con agua sobre el cordón`} accent
             tip={`Kilómetros de calle con más de ${STREET.impassable * 100} cm de agua: podrían quedar intransitables para autos y peatones. Sobre el cordón: más de ${STREET.curb * 100} cm.`} />
           <Stat label="Edificios con agua ≥ 15 cm" value={bld.wet.toLocaleString('es-AR')} sub={`${bld.near.toLocaleString('es-AR')} con agua cerca · de ${(data?.buildings?.count ?? 0).toLocaleString('es-AR')}`} accent
             tip="Edificios de OpenStreetMap con al menos 15 cm de agua alrededor" />
-          <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toFixed(1)} km²`} sub="estimado" tip="Superficie total cubierta por 15 cm de agua o más (incluye lo que entra desde el río)" />
+          <Stat label="Área con agua ≥ 15 cm" value={`${(stats?.areaKm2 ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km²`} sub="estimado" tip="Superficie total cubierta por 15 cm de agua o más (incluye lo que entra desde el río)" />
           {census && (
             <Stat label="Personas en zonas con agua" value={`~${roughCount(pop?.poblacion ?? 0).toLocaleString('es-AR')}`} accent
               sub={census.hasSocio && pop
@@ -475,12 +488,13 @@ export default function App() {
             tip="Hospitales, escuelas, bomberos, etc. Afectada: tiene agua (≥ 15 cm). En atención: hay agua cerca." />
         </div>
 
-        <div className="tabs" role="tablist">
+        <div className="tabs" role="tablist" aria-label="Listas de resultados">
           <button role="tab" aria-selected={tab === 'prioridad'} className={tab === 'prioridad' ? 'on' : ''} onClick={() => setTab('prioridad')} data-tip="Dónde actuar primero: barrios ordenados por población, vulnerabilidad y orden de afectación (Censo 2022)">Prioridad</button>
-          <button role="tab" aria-selected={tab === 'calles'} className={tab === 'calles' ? 'on' : ''} onClick={() => setTab('calles')} data-tip="Calles que podrían quedar intransitables (más de 30 cm de agua)">Calles cortadas</button>
-          <button role="tab" aria-selected={tab === 'barrios'} className={tab === 'barrios' ? 'on' : ''} onClick={() => setTab('barrios')} data-tip="Barrios ordenados por cuándo les llega el agua">Barrios ({barrios.length})</button>
-          <button role="tab" aria-selected={tab === 'infra'} className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')} data-tip="Hospitales, escuelas, bomberos, etc. ordenados por cuándo les llega el agua">Infra ({facilities.length})</button>
+          <button role="tab" aria-selected={tab === 'calles'} className={tab === 'calles' ? 'on' : ''} onClick={() => setTab('calles')} data-tip="Calles que podrían quedar intransitables (más de 30 cm de agua)">Calles</button>
+          <button role="tab" aria-selected={tab === 'barrios'} className={tab === 'barrios' ? 'on' : ''} onClick={() => setTab('barrios')} data-tip="Barrios ordenados por cuándo les llega el agua">Barrios <em>{barrios.length}</em></button>
+          <button role="tab" aria-selected={tab === 'infra'} className={tab === 'infra' ? 'on' : ''} onClick={() => setTab('infra')} data-tip="Hospitales, escuelas, bomberos, etc. ordenados por cuándo les llega el agua">Instalaciones <em>{facilities.length}</em></button>
         </div>
+        <p className="list-lead">Tocá una fila para verla en el mapa.</p>
         {tab === 'prioridad' ? (
           <div className="prio-help">
             <div className="order-row">
@@ -492,23 +506,13 @@ export default function App() {
                   data-tip="El agua de la simulación en curso">escenario en curso</button>
               </div>
             </div>
-            <p className="list-help">
-              <b>Dónde actuar primero.</b> Puntaje = <b>personas</b> (Censo 2022) × <b>urgencia</b>{' '}
-              ({prioMode === 'plan' ? `zona 1º ×${URGENCY[1]} · 2º ×${URGENCY[2]} · 3º ×${URGENCY[3]}` : 'agua que llegó antes ×3 · después ×2 · al final ×1'}) × <b>vulnerabilidad</b>{' '}
-              (hogares con NBI, niños y mayores, sin cobertura de salud; 1 = promedio de la ciudad). Un barrio chico que se afecta primero puede quedar
-              debajo de uno denso y vulnerable. Ordena la evaluación: <b>no decide</b>.
+            <p className="list-help" data-tip={`Urgencia: ${prioMode === 'plan' ? `zona 1º ×${URGENCY[1]} · 2º ×${URGENCY[2]} · 3º ×${URGENCY[3]}` : 'agua que llegó antes ×3 · después ×2 · al final ×1'}. Vulnerabilidad: hogares con NBI, niños y mayores, sin cobertura de salud (1 = promedio de la ciudad). Un barrio chico que se afecta primero puede quedar debajo de uno denso y vulnerable.`}>
+              <b>Dónde actuar primero:</b> personas (Censo 2022) × urgencia × vulnerabilidad. Ordena la evaluación, <b>no decide</b>.
             </p>
             {census && !census.hasSocio && <p className="list-help warn">Falta el detalle sociodemográfico: se usa solo la población.</p>}
           </div>
         ) : tab === 'calles' ? (
           <div className="street-sum">
-            <div className="street-hero">
-              <NoPass big />
-              <div>
-                <b className="mono"><CountUp value={streets?.impassableKm ?? 0} decimals={1} suffix=" km" /></b>
-                <span>de calles <b>podrían quedar intransitables</b> (más de {STREET.impassable * 100} cm de agua)</span>
-              </div>
-            </div>
             <p className="list-help">
               Cada barra es el <b>agua en la calzada</b>: el vaso se llena con la profundidad y la línea marca {STREET.impassable * 100} cm, donde un auto ya no pasa.
               En el mapa aparecen carteles <NoPass /> en las calles más afectadas. {(streets?.dirtCurbKm ?? 0) > 0.05 ? `Incluye ${(streets?.dirtCurbKm ?? 0).toFixed(1)} km de calles de tierra.` : ''}
@@ -548,9 +552,9 @@ export default function App() {
           </p>
         ) : (
         <p className="list-help">
-          Arriba, lo primero que toca el agua en esta simulación (a la derecha, cuándo). La etiqueta de color indica desde qué escenario se afecta:{' '}
-          <span className="tier t1 inline">1º</span> ya con lluvia fuerte · <span className="tier t2 inline">2º</span> con temporal severo ·{' '}
-          <span className="tier t3 inline">3º</span> solo en el extremo · <span className="tier t0 inline">—</span> en ninguno.
+          Arriba, lo primero que toca el agua (a la derecha, cuándo). Se afecta desde:{' '}
+          <span className="tier t1 inline">1º</span> lluvia fuerte · <span className="tier t2 inline">2º</span> temporal ·{' '}
+          <span className="tier t3 inline">3º</span> extremo · <span className="tier t0 inline">—</span> ninguno.
         </p>
         )}
         </>)}
@@ -571,7 +575,7 @@ export default function App() {
             const nbi = vulnerabilityShares(p.profile).nbi;
             return (
               <li key={i} className={`prio ${selBarrio === i ? 'sel' : ''}`} onClick={() => { setSelBarrio(i); setSelected(null); sceneRef.current?.focusLonLat(b.lon, b.lat); }}>
-                <span className="rank mono">{k + 1}</span>
+                <span className="rank num">{k + 1}</span>
                 <div className="li-main">
                   <b>{b.name}</b>
                   <span>{prioMode === 'plan'
@@ -589,17 +593,17 @@ export default function App() {
               <TierBadge t={b.tier} />
               <div className="li-main"><b>{b.name}</b><span>{l ? `${Math.round(l.share * 100)} % con agua` : ''}{byRiverOrder && b.protectedByDefense && !scenario.defenseFails ? ' · tras la defensa' : ''}</span></div>
               {byRiverOrder
-                ? <span className="mono time" data-tip={stageTip(stageOf(b), 'el 5 % del barrio')}>{fmtStage(stageOf(b))}</span>
-                : <span className="mono time">{fmtTime(l?.firstAffected ?? -1)}</span>}
+                ? <span className="num time" data-tip={stageTip(stageOf(b), 'el 5 % del barrio')}>{fmtStage(stageOf(b))}</span>
+                : <span className="num time">{fmtTime(l?.firstAffected ?? -1)}</span>}
             </li>
           ))}
           {tab === 'infra' && facRows.map(({ f, l, i }) => (
             <li key={f.id} className={`${byRiverOrder ? thrRowClass(stageOf(f)) : `st-${l?.status ?? 'seco'}`} ${selected === i ? 'sel' : ''}`} onClick={() => { setSelected(i); sceneRef.current?.focusFacility(i); }}>
               <TierBadge t={f.tier} />
-              <div className="li-main"><b><span className="icon">{CAT_ICON[f.cat]}</span>{f.name}</b><span>{CAT_LABEL[f.cat]}{l && l.status !== 'seco' ? ` · ${(l.depth * 100).toFixed(0)} cm` : ''}{byRiverOrder && f.protectedByDefense && !scenario.defenseFails ? ' · tras la defensa' : ''}</span></div>
+              <div className="li-main"><b>{f.name}</b><span>{CAT_LABEL[f.cat]}{l && l.status !== 'seco' ? ` · ${(l.depth * 100).toFixed(0)} cm` : ''}{byRiverOrder && f.protectedByDefense && !scenario.defenseFails ? ' · tras la defensa' : ''}</span></div>
               {byRiverOrder
-                ? <span className="mono time" data-tip={stageTip(stageOf(f), 'esta instalación')}>{fmtStage(stageOf(f))}</span>
-                : <span className="mono time">{fmtTime(l?.firstWet ?? -1)}</span>}
+                ? <span className="num time" data-tip={stageTip(stageOf(f), 'esta instalación')}>{fmtStage(stageOf(f))}</span>
+                : <span className="num time">{fmtTime(l?.firstWet ?? -1)}</span>}
             </li>
           ))}
           {tab === 'calles' && streets?.top.map((t) => {
@@ -610,7 +614,7 @@ export default function App() {
                 data-tip={`${t.name}: agua en la calzada ${fmtDepth(t.maxDepth)}. Clic para verla en el mapa.`}>
                 <WaterGauge depth={t.maxDepth} />
                 <div className="li-main"><b>{cut && <NoPass />}{t.name}{t.dirt && <em className="dirt-tag" data-tip="Calle de tierra (OpenStreetMap): con agua queda con barro y se corta antes">tierra</em>}</b><span>{cut ? 'podría quedar intransitable' : 'agua sobre el cordón'} · {fmtDepth(t.maxDepth)}</span></div>
-                <span className="mono time">{t.km.toFixed(2)} km</span>
+                <span className="num time">{t.km.toFixed(2)} km</span>
               </li>
             );
           })}
@@ -619,7 +623,7 @@ export default function App() {
           {tab === 'infra' && !facilities.length && <li className="empty">Sin infraestructura de OpenStreetMap cargada.</li>}
         </ol>
         {tab === 'infra' && facilities.length > 0 && (
-          <div className="tier-sum mono">Nivel 1º: {tierCounts[1]} · 2º: {tierCounts[2]} · 3º: {tierCounts[3]} · fuera: {tierCounts[0]}</div>
+          <div className="tier-sum num">Nivel 1º: {tierCounts[1]} · 2º: {tierCounts[2]} · 3º: {tierCounts[3]} · fuera: {tierCounts[0]}</div>
         )}
       </aside>
 
@@ -636,7 +640,7 @@ export default function App() {
         <div className="impact" role="status" aria-live="polite">
           <div className="im-item">
             <NoPass big />
-            <b className="mono"><CountUp value={streets?.impassableKm ?? 0} decimals={1} suffix=" km" /></b>
+            <b className="num"><CountUp value={streets?.impassableKm ?? 0} decimals={1} suffix=" km" /></b>
             <span>de calles que podrían cortarse</span>
           </div>
           <em>Escenario hipotético</em>
@@ -663,13 +667,13 @@ export default function App() {
 
       {sel && (
         <div className="card">
-          <button className="x" onClick={() => { setSelected(null); sceneRef.current?.focusFacility(null); }} aria-label="Cerrar ficha" data-tip="Cerrar la ficha">×</button>
+          <button className="x" onClick={() => { setSelected(null); sceneRef.current?.focusFacility(null); }} aria-label="Cerrar ficha" data-tip="Cerrar la ficha"><Icon name="close" /></button>
           <small>{CAT_LABEL[sel.cat]}</small>
           <h3>{sel.name}</h3>
           <dl>
             <dt>Estado ahora</dt><dd className={`st-${selLive?.status}`}>{statusText(selLive)}</dd>
-            <dt>Agua máx. cerca (±60 m)</dt><dd className="mono">{selLive ? `${(selLive.depth * 100).toFixed(0)} cm` : '—'}</dd>
-            <dt>Primer contacto con agua</dt><dd className="mono">{fmtTime(selLive?.firstWet ?? -1)}{selLive?.byRiver ? ' · por el río' : ''}</dd>
+            <dt>Agua máx. cerca (±60 m)</dt><dd className="num">{selLive ? `${(selLive.depth * 100).toFixed(0)} cm` : '—'}</dd>
+            <dt>Primer contacto con agua</dt><dd className="num">{fmtTime(selLive?.firstWet ?? -1)}{selLive?.byRiver ? ' · por el río' : ''}</dd>
             <dt>Nivel de referencia</dt><dd>{sel.tier ? `${TIER_LABEL[sel.tier]} (${LEVELS[sel.tier - 1].label})${sel.tierByRiver ? ' · por el río' : ''}` : 'No se afecta en los 3 escenarios'}</dd>
           </dl>
           {hasThr && <ThresholdBlock f={sel} crest={crestStage} river={scenario.riverStage} breach={scenario.defenseFails} />}
@@ -681,7 +685,7 @@ export default function App() {
       <footer className="dock" ref={dockRef}>
         <div className="layers">
           <div className="dock-group" role="group" aria-label="Capas visibles en el mapa">
-            <span className="dock-label">Mostrar en el mapa</span>
+            <span className="dock-label"><Icon name="layers" size={16} />Capas</span>
             <Toggle on={layers.water} onClick={() => setLayers({ ...layers, water: !layers.water })}
               tip="El agua de la simulación, moviéndose en tiempo real">Agua</Toggle>
             {census && (
@@ -702,9 +706,9 @@ export default function App() {
               tip="Edificios en 3D">Edificios</Toggle>
           </div>
           <div className="dock-group help" role="group" aria-label="Vista y ayuda">
-            <button className={`toggle ${showView ? 'on' : ''}`} aria-expanded={showView} onClick={() => setShowView((v) => !v)}
-              data-tip="Color del agua, relieve, calles y cámara libre">⚙ Vista</button>
-            <button className="btn ghost" onClick={() => setShowInfo(true)} data-tip="Qué datos usamos, qué suponemos y qué NO podemos asegurar">ⓘ Supuestos y límites</button>
+            <button className={`btn ghost ${showView ? 'on' : ''}`} aria-expanded={showView} onClick={() => setShowView((v) => !v)}
+              data-tip="Color del agua, relieve, calles y cámara libre"><Icon name="sliders" />Vista</button>
+            <button className="btn ghost" onClick={() => setShowInfo(true)} data-tip="Qué datos usamos, qué suponemos y qué NO podemos asegurar"><Icon name="info" />Supuestos y límites</button>
           </div>
         </div>
         {showView && (
@@ -733,13 +737,22 @@ export default function App() {
               <button className={`toggle freecam-btn ${freeCam.active ? 'on' : ''}`} data-tip="Recorré la ciudad como un dron con el teclado (tecla F para entrar o salir)"
                 aria-pressed={freeCam.active}
                 onClick={(e) => { e.currentTarget.blur(); sceneRef.current?.setFreeCamera(!freeCam.active); }}>
-                ✈ Cámara libre
+                <Icon name="camera" size={16} />Cámara libre
               </button>
             </div>
           </div>
         )}
         <Legend layers={layers} mode={waterMode} />
       </footer>
+
+      <nav className="mobile-nav" aria-label="Secciones">
+        <button className={sheet === 'left' ? 'on' : ''} aria-pressed={sheet === 'left'} onClick={() => toggleSheet('left')}><Icon name="scenario" size={22} /><span>Escenario</span></button>
+        <button className={sheet === 'right' ? 'on' : ''} aria-pressed={sheet === 'right'} onClick={() => toggleSheet('right')}><Icon name="results" size={22} /><span>Resultados</span></button>
+        <button className="mn-play" onClick={() => send({ type: stats?.running ? 'pause' : 'play' })}
+          aria-label={stats?.running ? 'Pausar la simulación' : 'Hacer llover'}><Icon name={stats?.running ? 'pause' : 'play'} size={26} /></button>
+        <button className={sheet === 'dock' ? 'on' : ''} aria-pressed={sheet === 'dock'} onClick={() => toggleSheet('dock')}><Icon name="layers" size={22} /><span>Capas</span></button>
+        <button onClick={() => setShowInfo(true)}><Icon name="info" size={22} /><span>Límites</span></button>
+      </nav>
 
       {freeCam.active && (
         <div className="freecam-help" role="status">
@@ -787,7 +800,7 @@ function ThresholdBlock({ f, crest, river, breach }: { f: FacilityInfo; crest: n
     return (
       <div className={`thr-line ${active ? 'active' : ''} thr-${st}`}
         data-tip={active ? 'Variante del escenario actual (opción «La defensa falla», en las opciones avanzadas)' : 'Otra variante: cambiala con «La defensa falla», en las opciones avanzadas'}>
-        <span>{variant === 'sana' ? 'Se afecta con el río a' : 'Con rotura de la defensa:'} <b className="mono">{fmtStage(s)}</b>
+        <span>{variant === 'sana' ? 'Se afecta con el río a' : 'Con rotura de la defensa:'} <b className="num">{fmtStage(s)}</b>
           {active && st === 'alcanzado' ? <em> · ya alcanzada</em> : active && st === 'riesgo' ? <em> · faltan menos de {RISK_MARGIN * 100} cm</em> : null}</span>
         <small>{ctx}</small>
       </div>
@@ -814,22 +827,22 @@ function BarrioCard({ name, tier, prio, live, rank, ranked, hasSocio, source, on
   const n = (v: number) => `~${roughCount(v).toLocaleString('es-AR')}`;
   return (
     <div className="card barrio-card">
-      <button className="x" onClick={onClose} aria-label="Cerrar ficha" data-tip="Cerrar la ficha">×</button>
+      <button className="x" onClick={onClose} aria-label="Cerrar ficha" data-tip="Cerrar la ficha"><Icon name="close" /></button>
       <small>Barrio · perfil del Censo 2022</small>
       <h3>{name}</h3>
       <p className="prio-rank">{prio.score > 0 ? <>Prioridad <b>{rank}º</b> de {ranked} barrios en el plan</> : 'Fuera de las zonas 1º, 2º y 3º'}{tier ? ` · se afecta en el nivel ${TIER_LABEL[tier]}` : ''}</p>
       <dl>
-        <dt>Población</dt><dd className="mono">{n(p.poblacion)} personas · {n(p.hogares)} hogares</dd>
-        <dt>En zona 1º · 2º · 3º</dt><dd className="mono">{n(prio.peopleByTier[0])} · {n(prio.peopleByTier[1])} · {n(prio.peopleByTier[2])}</dd>
-        {live && <><dt>Con agua ahora</dt><dd className="mono">{n(live.people)} personas</dd></>}
+        <dt>Población</dt><dd className="num">{n(p.poblacion)} personas · {n(p.hogares)} hogares</dd>
+        <dt>En zona 1º · 2º · 3º</dt><dd className="num">{n(prio.peopleByTier[0])} · {n(prio.peopleByTier[1])} · {n(prio.peopleByTier[2])}</dd>
+        {live && <><dt>Con agua ahora</dt><dd className="num">{n(live.people)} personas</dd></>}
         {hasSocio && <>
-          <dt>Hogares con NBI</dt><dd className="mono">{pct(p.hogaresNbi, p.hogares)} ({n(p.hogaresNbi)})</dd>
-          <dt>Niños ≤ 14 · mayores ≥ 65</dt><dd className="mono">{n(p.menores14)} · {n(p.mayores65)}</dd>
-          <dt>Sin cobertura de salud</dt><dd className="mono">{pct(p.sinCobertura, p.poblacion)}</dd>
-          <dt>Hacinamiento crítico</dt><dd className="mono">{pct(p.hogaresHacinamiento, p.hogares)} de los hogares</dd>
-          <dt>Sin cloaca · sin agua de red</dt><dd className="mono">{pct(p.hogaresSinCloaca, p.hogares)} · {pct(p.hogaresSinAguaRed, p.hogares)}</dd>
-          <dt>Viviendas precarias</dt><dd className="mono">{n(p.viviendasPrecarias)} (rancho, casilla y similares)</dd>
-          <dt>Índice de vulnerabilidad</dt><dd className="mono">×{prio.ivs.toFixed(2).replace('.', ',')} (1 = promedio de la ciudad)</dd>
+          <dt>Hogares con NBI</dt><dd className="num">{pct(p.hogaresNbi, p.hogares)} ({n(p.hogaresNbi)})</dd>
+          <dt>Niños ≤ 14 · mayores ≥ 65</dt><dd className="num">{n(p.menores14)} · {n(p.mayores65)}</dd>
+          <dt>Sin cobertura de salud</dt><dd className="num">{pct(p.sinCobertura, p.poblacion)}</dd>
+          <dt>Hacinamiento crítico</dt><dd className="num">{pct(p.hogaresHacinamiento, p.hogares)} de los hogares</dd>
+          <dt>Sin cloaca · sin agua de red</dt><dd className="num">{pct(p.hogaresSinCloaca, p.hogares)} · {pct(p.hogaresSinAguaRed, p.hogares)}</dd>
+          <dt>Viviendas precarias</dt><dd className="num">{n(p.viviendasPrecarias)} (rancho, casilla y similares)</dd>
+          <dt>Índice de vulnerabilidad</dt><dd className="num">×{prio.ivs.toFixed(2).replace('.', ',')} (1 = promedio de la ciudad)</dd>
         </>}
       </dl>
       <p className="hint">Barrio aproximado: celdas a menos de 1,2 km del punto del barrio en OpenStreetMap. Censo repartido parejo en cada radio. Fuente: {source}.</p>
@@ -866,7 +879,7 @@ function AuthorityPanel({ rows, total, river, rainMm, simTime, defenseFails, onF
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal auth" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Evaluación para autoridades">
-        <button className="x" onClick={onClose} aria-label="Cerrar">×</button>
+        <button className="x" onClick={onClose} aria-label="Cerrar"><Icon name="close" /></button>
         <div className="auth-head">
           <i className="ea-dot big" aria-hidden="true" />
           <div>
@@ -879,11 +892,11 @@ function AuthorityPanel({ rows, total, river, rainMm, simTime, defenseFails, onF
 
         {total && (
           <div className="auth-sum">
-            <div><b className="mono"><CountUp value={total.hogares} prefix="~" round /></b><span><House /> familias en zonas con agua</span></div>
-            <div><b className="mono"><CountUp value={total.poblacion} prefix="~" round /></b><span>personas</span></div>
-            <div><b className="mono"><CountUp value={total.menores14} prefix="~" round /></b><span>niños de hasta 14 años</span></div>
-            <div><b className="mono"><CountUp value={total.mayores65} prefix="~" round /></b><span>personas de 65 años o más</span></div>
-            <div><b className="mono"><CountUp value={total.hogaresNbi} prefix="~" round /></b><span>hogares con NBI</span></div>
+            <div><b className="num"><CountUp value={total.hogares} prefix="~" round /></b><span><House /> familias en zonas con agua</span></div>
+            <div><b className="num"><CountUp value={total.poblacion} prefix="~" round /></b><span>personas</span></div>
+            <div><b className="num"><CountUp value={total.menores14} prefix="~" round /></b><span>niños de hasta 14 años</span></div>
+            <div><b className="num"><CountUp value={total.mayores65} prefix="~" round /></b><span>personas de 65 años o más</span></div>
+            <div><b className="num"><CountUp value={total.hogaresNbi} prefix="~" round /></b><span>hogares con NBI</span></div>
           </div>
         )}
 
@@ -893,7 +906,7 @@ function AuthorityPanel({ rows, total, river, rainMm, simTime, defenseFails, onF
             {list.map((r, k) => (
               <li key={barrioKey(r)} onClick={() => onFocus(r.lon, r.lat)}
                 data-tip="Clic para ver el barrio en el mapa">
-                <span className="rank mono">{k + 1}</span>
+                <span className="rank num">{k + 1}</span>
                 <div className="al-main">
                   <b>{r.name}</b>
                   <span>
@@ -974,7 +987,7 @@ function Stat({ label, value, sub, accent, tip }: { label: string; value: React.
   return (
     <div className={`stat ${accent ? 'accent' : ''}`} data-tip={tip}>
       <span>{label}</span>
-      <b className="mono">{value}</b>
+      <b className="num">{value}</b>
       {sub && <small>{sub}</small>}
     </div>
   );
@@ -1023,8 +1036,7 @@ function Legend({ layers, mode }: { layers: Layers; mode: WaterMode }) {
   if (!groups.length) return null;
   return (
     <div className="legend" aria-label="Referencias de colores">
-      <span className="dock-label">Referencias</span>
-      {groups.map((g) => <span key={g.t} className="lg-group"><em>{g.t}:</em>{g.items}</span>)}
+            {groups.map((g) => <span key={g.t} className="lg-group"><em>{g.t}:</em>{g.items}</span>)}
     </div>
   );
 }
@@ -1035,7 +1047,7 @@ function InfoModal({ data, validation, onClose }: {
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="x" onClick={onClose}>×</button>
+        <button className="x" onClick={onClose} aria-label="Cerrar"><Icon name="close" /></button>
         <h2>Supuestos, datos y límites</h2>
         <p className="lead">Herramienta para <b>explorar escenarios hipotéticos</b>. Muestra <b>zonas a evaluar, no veredictos</b>. Las decisiones operativas y de emergencia son responsabilidad de las autoridades.</p>
 
@@ -1063,18 +1075,18 @@ function InfoModal({ data, validation, onClose }: {
         <h3>Supuestos declarados</h3>
         <table>
           <tbody>
-            <tr><td>Cero de la escala de Puerto Formosa</td><td className="mono">{ASSUMPTIONS.gaugeZero} m</td><td>Dato oficial (Gobierno de Formosa, 08/12/2015): la cota IGN 59 m equivale a 11,70 m en la escala del puerto, de donde sale el cero 47,30 m IGN. <b>A confirmar con el INA.</b> El terreno (FABDEM) usa otro dátum (EGM2008); la diferencia no está verificada.</td></tr>
-            <tr><td>Coronamiento de la defensa</td><td className="mono">{ASSUMPTIONS.defenseCrest} m</td><td>Dato oficial 2015: 11,70 m de escala. Traza reconstruida (~38,6 km; el dato oficial es ~15 km): los 5 tramos reales de OpenStreetMap unidos con conectores estimados que bordean la zona edificada sin cortar manzanas (al norte sigue el riacho Formosa). Es una aproximación: falta la traza oficial. La rotura simulada es una brecha de ~200 m frente al puerto.</td></tr>
-            <tr><td>Desagüe + infiltración</td><td className="mono">editable</td><td>{data?.drainageMeta
+            <tr><td>Cero de la escala de Puerto Formosa</td><td className="num">{ASSUMPTIONS.gaugeZero} m</td><td>Dato oficial (Gobierno de Formosa, 08/12/2015): la cota IGN 59 m equivale a 11,70 m en la escala del puerto, de donde sale el cero 47,30 m IGN. <b>A confirmar con el INA.</b> El terreno (FABDEM) usa otro dátum (EGM2008); la diferencia no está verificada.</td></tr>
+            <tr><td>Coronamiento de la defensa</td><td className="num">{ASSUMPTIONS.defenseCrest} m</td><td>Dato oficial 2015: 11,70 m de escala. Traza reconstruida (~38,6 km; el dato oficial es ~15 km): los 5 tramos reales de OpenStreetMap unidos con conectores estimados que bordean la zona edificada sin cortar manzanas (al norte sigue el riacho Formosa). Es una aproximación: falta la traza oficial. La rotura simulada es una brecha de ~200 m frente al puerto.</td></tr>
+            <tr><td>Desagüe + infiltración</td><td className="num">editable</td><td>{data?.drainageMeta
               ? <>Varía por zona según la red pluvial relevada ({data.drainageMeta.totalKm2} km²): con bocas de tormenta o sumideros, el 100 % del valor elegido; en el resto (solo cunetas e infiltración), el {Math.round(ASSUMPTIONS.drainNoNetwork * 100)} %. Alrededor de cada calle se toman {data.drainageMeta.radii.street} m y alrededor de cada esquina {data.drainageMeta.radii.corner} m.</>
               : 'No hay datos de la red pluvial: toda la ciudad drena igual.'} Con el río en alerta queda un {Math.round(ASSUMPTIONS.drainFactorHighRiver * 100)} % (solo bombeo).</td></tr>
-            <tr><td>Agua en las calles</td><td className="mono">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
-            <tr><td>Subida del río</td><td className="mono">~{RISE_REF.cmPerDay} cm/día</td><td>Para declarar en cuántos días se llegaría a la altura del escenario: {RISE_REF.source}. No es un pronóstico: el río puede subir más rápido o no subir.</td></tr>
-            <tr><td>Rugosidad (Manning)</td><td className="mono">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
+            <tr><td>Agua en las calles</td><td className="num">{Math.round(STREET.share * 100)} %</td><td>En zona urbana (≥ {STREET.minBuildings} edificios por celda de ~60 m) se supone que la calzada ocupa ese porcentaje de la manzana y junta toda su agua, porque lotes y veredas están más altos. Cordón: {STREET.curb * 100} cm. Intransitable: {STREET.impassable * 100} cm.</td></tr>
+            <tr><td>Subida del río</td><td className="num">~{RISE_REF.cmPerDay} cm/día</td><td>Para declarar en cuántos días se llegaría a la altura del escenario: {RISE_REF.source}. No es un pronóstico: el río puede subir más rápido o no subir.</td></tr>
+            <tr><td>Rugosidad (Manning)</td><td className="num">{ASSUMPTIONS.manning}</td><td>Valor típico de llanura urbana y periurbana.</td></tr>
             {data?.thresholds && (
-              <tr><td>Umbral de exposición al río</td><td className="mono">estimado</td><td>Para cada celda de ~30 m, la altura mínima del río en Puerto Formosa a la que el agua del río llega por superficie («bañadera conectada»: priority-flood desde el río sobre el terreno), calculada con la <b>defensa sana</b> y <b>con la brecha</b> de ~200 m. Una instalación toma el valor más bajo de su entorno (±30 m); un barrio, la altura a la que se expone el 5 % de su superficie. Se evalúa hasta 20 m de escala. <b>No incluye lluvia, desagües, filtraciones ni tiempos de llegada</b>: indica desde qué altura del río conviene mirar cada lugar, no cuándo ni si va a pasar.</td></tr>
+              <tr><td>Umbral de exposición al río</td><td className="num">estimado</td><td>Para cada celda de ~30 m, la altura mínima del río en Puerto Formosa a la que el agua del río llega por superficie («bañadera conectada»: priority-flood desde el río sobre el terreno), calculada con la <b>defensa sana</b> y <b>con la brecha</b> de ~200 m. Una instalación toma el valor más bajo de su entorno (±30 m); un barrio, la altura a la que se expone el 5 % de su superficie. Se evalúa hasta 20 m de escala. <b>No incluye lluvia, desagües, filtraciones ni tiempos de llegada</b>: indica desde qué altura del río conviene mirar cada lugar, no cuándo ni si va a pasar.</td></tr>
             )}
-            <tr><td>Umbral de afectación</td><td className="mono">{ASSUMPTIONS.wetThreshold * 100} cm</td><td>Agua que dificulta el tránsito y entra a veredas.</td></tr>
+            <tr><td>Umbral de afectación</td><td className="num">{ASSUMPTIONS.wetThreshold * 100} cm</td><td>Agua que dificulta el tránsito y entra a veredas.</td></tr>
           </tbody>
         </table>
 
@@ -1111,7 +1123,7 @@ function InfoModal({ data, validation, onClose }: {
                 <tr key={r.name}>
                   <td><b>{r.name}</b><br /><span className="hint">{r.kind === 'lluvia' ? 'por lluvia' : 'por el río'}</span></td>
                   <td>{r.event}. <a href={r.url} target="_blank" rel="noreferrer">{r.source}</a></td>
-                  <td className="mono">{!r.found ? 'no está en OSM' : r.tier ? `zona ${TIER_LABEL[r.tier]} · prioridad ${r.rank}º de ${validation.ranked}` : 'el modelo NO lo marca'}</td>
+                  <td className="num">{!r.found ? 'no está en OSM' : r.tier ? `zona ${TIER_LABEL[r.tier]} · prioridad ${r.rank}º de ${validation.ranked}` : 'el modelo NO lo marca'}</td>
                 </tr>
               ))}
             </tbody>

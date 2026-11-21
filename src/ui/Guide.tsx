@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Icon } from './Icon';
 
 const KEY = 'oa-guide-seen-v1';
 
@@ -11,10 +12,10 @@ export function markGuideSeen() {
 }
 
 const STEPS = [
-  { t: 'Elegí un escenario', d: 'Arriba a la izquierda: Nivel 1, 2, 3 o la crecida histórica de 1983. Cada uno combina cuánta lluvia cae y qué tan alto está el río Paraguay.' },
-  { t: 'Hacé llover', d: 'Tocá el botón azul «Hacer llover». El agua cae, corre por las pendientes y se junta en los bajos, en tiempo acelerado.' },
-  { t: 'Mirá qué se afecta primero', d: 'A la derecha aparecen las calles, barrios e instalaciones (hospitales, escuelas…) ordenados por cuándo les llega el agua. Hacé clic en uno para verlo en el mapa.' },
-  { t: 'Revisá supuestos y límites', d: 'Es un escenario hipotético, no un pronóstico. En «Supuestos y límites» (abajo a la derecha) está qué datos usamos y qué no podemos asegurar.' },
+  { t: 'Elegí un escenario', d: 'En el panel Escenario: Nivel 1, 2, 3 o la crecida histórica de 1983. Cada uno combina cuánta lluvia cae y qué tan alto está el río Paraguay.' },
+  { t: 'Hacé llover', d: 'Tocá «Hacer llover» (en el celular, el botón redondo de abajo). El agua cae, corre por las pendientes y se junta en los bajos, en tiempo acelerado.' },
+  { t: 'Mirá qué se afecta primero', d: 'En Resultados aparecen las calles, barrios e instalaciones (hospitales, escuelas…) ordenados por cuándo les llega el agua. Hacé clic en uno para verlo en el mapa.' },
+  { t: 'Revisá supuestos y límites', d: 'Es un escenario hipotético, no un pronóstico. En «Supuestos y límites»  está qué datos usamos y qué no podemos asegurar.' },
 ];
 
 export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onShowInfo: () => void }) {
@@ -27,8 +28,7 @@ export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onS
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" onClick={(e) => e.stopPropagation()}>
-        <button className="x" onClick={onClose} aria-label="Cerrar la guía">×</button>
-        <small className="guide-kicker">¿Qué es esto?</small>
+        <button className="x" onClick={onClose} aria-label="Cerrar la guía"><Icon name="close" /></button>
         <h2 id="guide-title">Un simulador de qué pasa en Formosa cuando llueve fuerte y crece el río</h2>
         <p className="lead">
           Ves la ciudad en 3D. Elegís cuánta lluvia cae y a qué altura está el río Paraguay, y el programa muestra
@@ -40,7 +40,7 @@ export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onS
           ))}
         </ol>
         <p className="hint">
-          Mover el mapa: arrastrá para rotar, rueda para acercar, clic derecho para desplazar. Pasá el mouse por cualquier botón para ver qué hace.
+          Mover el mapa: arrastrá para rotar, rueda o pellizco para acercar, clic derecho o dos dedos para desplazar. Pasá el mouse por un botón para ver qué hace.
         </p>
         <div className="guide-actions">
           <button className="btn ghost" onClick={() => { onClose(); onShowInfo(); }}>Ver supuestos y límites</button>
