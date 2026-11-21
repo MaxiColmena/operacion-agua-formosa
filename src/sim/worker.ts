@@ -33,6 +33,8 @@ let speed = 600; // segundos simulados por segundo real
 let stopAt = Infinity;
 let mask: Uint8Array;
 let terrainDirty = false;
+/** Hay algo nuevo que publicar: evita copiar y reenviar la grilla entera mientras está en pausa y nada cambió. */
+let frameDirty = false;
 
 const FRAME_MS = 66;
 
@@ -72,10 +74,17 @@ function loop() {
     // Presupuesto de tiempo por cuadro: si la máquina no llega, la simulación va más lenta pero fluida.
     while (sim.time < target - 1e-6 && performance.now() - t0 < FRAME_MS * 0.85) {
       sim.advance(Math.min(target - sim.time, 60), 50);
+      frameDirty = true;
     }
-    if (sim.time >= stopAt - 1e-6) running = false;
+    if (sim.time >= stopAt - 1e-6) {
+      running = false;
+      frameDirty = true;
+    }
   }
-  post();
+  if (frameDirty) {
+    frameDirty = false;
+    post();
+  }
   setTimeout(loop, running ? 0 : FRAME_MS * 3);
 }
 
@@ -93,6 +102,7 @@ ctx.onmessage = (e: MessageEvent<WorkerIn>) => {
         zEff: sim.terrain.slice(), mask: mask.slice(),
       };
       ctx.postMessage(out);
+      frameDirty = true;
       loop();
       break;
     }
@@ -101,25 +111,32 @@ ctx.onmessage = (e: MessageEvent<WorkerIn>) => {
       const prev = sim.scenario;
       sim.setScenario(m.scenario);
       if (prev.defenseFails !== m.scenario.defenseFails) terrainDirty = true;
+      // setScenario aplica el río/defensa de inmediato (reinicia el estado): hay que publicar aunque esté en pausa.
+      frameDirty = true;
       break;
     }
     case 'play':
       if (sim && sim.time >= stopAt - 1e-6) sim.reset();
       running = true;
+      frameDirty = true;
       break;
     case 'pause':
       running = false;
+      frameDirty = true;
       break;
     case 'reset':
       running = false;
       sim?.reset();
       terrainDirty = true;
+      frameDirty = true;
       break;
     case 'speed':
       speed = m.value;
+      frameDirty = true;
       break;
     case 'stopAt':
       stopAt = m.seconds;
+      frameDirty = true;
       break;
   }
 };

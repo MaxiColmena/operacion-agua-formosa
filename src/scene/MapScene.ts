@@ -155,7 +155,42 @@ export class MapScene {
     this.composer.addPass(new OutputPass());
 
     window.addEventListener('resize', this.onResize);
+    // Al terminar de cargar una tipografía cambian los anchos de los rótulos: se vuelven a ubicar y despejar.
+    document.fonts?.addEventListener?.('loadingdone', this.markLabelsDirty);
+    this.maxPixelRatio = Math.min(window.devicePixelRatio, 2);
+    this.perfWarmupUntil = performance.now() + 3000;
+    this.labelsDirty = true;
     this.animate();
+  }
+
+  // ---------- ganchos públicos (recorrido guiado, presentación) ----------
+  /** Se llama en cada cuadro dibujado, después del render y de los rótulos (p. ej. para copiar a una grabación). */
+  onAfterRender: ((canvas: HTMLCanvasElement) => void) | null = null;
+  private cameraDriver: ((dt: number, t: number) => void) | null = null;
+  /**
+   * Conductor de cámara: mientras está activo, en cada cuadro escribe `camera.position` y `controls.target`
+   * (dt y t en segundos) y se omiten el vuelo, la cámara libre y OrbitControls.
+   */
+  setCameraDriver(driver: ((dt: number, t: number) => void) | null) {
+    const had = this.cameraDriver != null;
+    if (driver) {
+      this.freeCam.set(false);
+      this.fly = null;
+    }
+    this.cameraDriver = driver;
+    if (!driver && had) this.controls.update();
+  }
+  /** Posición (mundo) del marcador de la instalación i. */
+  facilityPosition(i: number): THREE.Vector3 | null {
+    const p = this.facilityPos[i];
+    return p ? p.clone() : null;
+  }
+  get sizeKm(): { w: number; h: number } {
+    return { w: this.widthKm, h: this.heightKm };
+  }
+  /** Relación de píxeles actual del render (puede bajar sola si el equipo no llega a 30 fps). */
+  get pixelRatio() {
+    return this.renderer.getPixelRatio();
   }
 
   // ---------- coordenadas ----------
@@ -392,6 +427,7 @@ export class MapScene {
     }
     // Contorno del río Paraguay (máscara).
     const { width: w, height: h } = this.meta;
+    // Un rectángulo por celda, con medio píxel de solape: el solape forma parte del tono final del río.
     g.fillStyle = 'rgba(18,58,128,0.55)';
     const sx = W / w, sy = H / h;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data.mask[y * w + x] & MASK_RIVER) g.fillRect(x * sx, y * sy, sx + 0.5, sy + 0.5);
@@ -555,24 +591,48 @@ export class MapScene {
   buildingSimCell: Int32Array | null = null;
   private bldCentroid: Float32Array | null = null;
 
+  /**
+   * Dos pasadas con arreglos tipados preasignados (sin arreglos JS que crecen ni un Vector2 por vértice):
+   * la 1ª triangula los techos no cuadrangulares y cuenta vértices/índices; la 2ª escribe la malla.
+   * El contenido (orden de vértices, atributos e índices) es el mismo que con la versión anterior.
+   */
   private buildBuildings(b: Buildings) {
-    const pos: number[] = [];
-    const elevV: number[] = [];
-    const offV: number[] = [];
-    const rel: number[] = [];
-    const uvs: number[] = [];
-    const idx: number[] = [];
-    const cent = new Float32Array(b.count * 2);
+    const W = this.meta.width, H = this.meta.height, wk = this.widthKm, hkm = this.heightKm;
+    const pool: THREE.Vector2[] = [];
     const v2: THREE.Vector2[] = [];
+    const QUAD = [[0, 1, 2], [0, 2, 3]];
+    const roofs: number[][][] = new Array(b.count);
+    let nVert = 0, nIdx = 0;
     for (let i = 0; i < b.count; i++) {
       const n = b.size[i], s0 = b.start[i];
-      v2.length = 0;
-      let cx = 0, cy = 0;
-      for (let j = 0; j < n; j++) {
-        const x = b.xy[(s0 + j) * 2], y = b.xy[(s0 + j) * 2 + 1];
-        cx += x; cy += y;
-        v2.push(new THREE.Vector2((x / this.meta.width - 0.5) * this.widthKm, (y / this.meta.height - 0.5) * this.heightKm));
+      let tris: number[][];
+      if (n === 4) tris = QUAD;
+      else {
+        v2.length = 0;
+        for (let j = 0; j < n; j++) {
+          const p = pool[j] ?? (pool[j] = new THREE.Vector2());
+          p.set((b.xy[(s0 + j) * 2] / W - 0.5) * wk, (b.xy[(s0 + j) * 2 + 1] / H - 0.5) * hkm);
+          v2.push(p);
+        }
+        tris = THREE.ShapeUtils.triangulateShape(v2, []);
       }
+      roofs[i] = tris;
+      nVert += 2 * n;
+      nIdx += 6 * n + 3 * tris.length;
+    }
+    if (!nVert) return;
+    const pos = new Float32Array(nVert * 3);
+    const rel = new Float32Array(nVert);
+    const uvs = new Float32Array(nVert * 2);
+    const elevV = new Float32Array(nVert);
+    const offV = new Float32Array(nVert);
+    const idx = nVert > 65535 ? new Uint32Array(nIdx) : new Uint16Array(nIdx);
+    const cent = new Float32Array(b.count * 2);
+    let o = 0, k = 0;
+    for (let i = 0; i < b.count; i++) {
+      const n = b.size[i], s0 = b.start[i];
+      let cx = 0, cy = 0;
+      for (let j = 0; j < n; j++) { cx += b.xy[(s0 + j) * 2]; cy += b.xy[(s0 + j) * 2 + 1]; }
       cx /= n; cy /= n;
       cent[i * 2] = cx; cent[i * 2 + 1] = cy;
       const ground = this.elevAt(cx, cy);
@@ -581,26 +641,34 @@ export class MapScene {
       // La altura del edificio va en metros reales × BLD_EXAG: no sigue a la exageración del terreno.
       const hk = (hm * BLD_EXAG) / 1000;
       const top = base + hk;
-      const u = cx / this.meta.width, v = cy / this.meta.height;
-      const o = pos.length / 3;
-      for (const p of v2) { pos.push(p.x, base, p.y); rel.push(0); uvs.push(u, v); elevV.push(ground); offV.push(0); }
-      for (const p of v2) { pos.push(p.x, top, p.y); rel.push(1); uvs.push(u, v); elevV.push(ground); offV.push(hk); }
+      const u = cx / W, v = cy / H;
+      for (let j = 0; j < n; j++) {
+        const px = (b.xy[(s0 + j) * 2] / W - 0.5) * wk, pz = (b.xy[(s0 + j) * 2 + 1] / H - 0.5) * hkm;
+        const lo = o + j, hi = o + n + j;
+        pos[lo * 3] = px; pos[lo * 3 + 1] = base; pos[lo * 3 + 2] = pz;
+        pos[hi * 3] = px; pos[hi * 3 + 1] = top; pos[hi * 3 + 2] = pz;
+        rel[hi] = 1;
+        uvs[lo * 2] = u; uvs[lo * 2 + 1] = v;
+        uvs[hi * 2] = u; uvs[hi * 2 + 1] = v;
+        elevV[lo] = ground; elevV[hi] = ground;
+        offV[hi] = hk;
+      }
       for (let j = 0; j < n; j++) {
         const a = o + j, c = o + ((j + 1) % n);
-        idx.push(a, c, c + n, a, c + n, a + n);
+        idx[k++] = a; idx[k++] = c; idx[k++] = c + n;
+        idx[k++] = a; idx[k++] = c + n; idx[k++] = a + n;
       }
-      const tris = n === 4 ? [[0, 1, 2], [0, 2, 3]] : THREE.ShapeUtils.triangulateShape(v2, []);
-      for (const t of tris) idx.push(o + n + t[0], o + n + t[1], o + n + t[2]);
+      for (const t of roofs[i]) { idx[k++] = o + n + t[0]; idx[k++] = o + n + t[1]; idx[k++] = o + n + t[2]; }
+      o += 2 * n;
     }
-    if (!pos.length) return;
     this.bldCentroid = cent;
-    this.bldElev = new Float32Array(elevV);
-    this.bldOff = new Float32Array(offV);
+    this.bldElev = elevV;
+    this.bldOff = offV;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('aRel', new THREE.Float32BufferAttribute(rel, 1));
-    geo.setAttribute('aCell', new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setIndex(pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aRel', new THREE.BufferAttribute(rel, 1));
+    geo.setAttribute('aCell', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
     this.waterTex = new THREE.DataTexture(new Float32Array(1), 1, 1, THREE.RedFormat, THREE.FloatType);
     this.bldMat = new THREE.ShaderMaterial({
       transparent: true,
@@ -724,6 +792,7 @@ export class MapScene {
 
   setFacilityStatus(status: FacilityStatus[]) {
     this.facilityLabels.forEach((o) => { o.element.dataset.state = status[o.userData.index] ?? 'seco'; });
+    this.labelsDirty = true;
     if (!this.beams || !this.bases) return;
     let changed = false;
     status.forEach((s, i) => {
@@ -844,6 +913,7 @@ export class MapScene {
 
   setBarrioLabelState(state: ('seco' | 'atencion' | 'afectado')[]) {
     this.labels.forEach((l, i) => { l.element.dataset.state = state[i] ?? 'seco'; });
+    this.labelsDirty = true;
   }
 
   // ---------- lluvia ----------
@@ -892,6 +962,7 @@ export class MapScene {
     if (nx === this.exag) return;
     const ratio = nx / this.exag;
     this.exag = nx;
+    this.labelsDirty = true;
 
     // Terreno.
     const tg = this.terrain.geometry;
@@ -954,6 +1025,7 @@ export class MapScene {
     this.facilityLabels.forEach((o) => (o.visible = l.labels && l.facilities));
     if (this.beams) this.beams.visible = l.facilities;
     if (this.bases) this.bases.visible = l.facilities;
+    this.labelsDirty = true;
   }
 
   // ---------- ciclo ----------
@@ -964,18 +1036,39 @@ export class MapScene {
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
     this.labelRenderer.setSize(w, h);
+    this.labelsDirty = true;
   };
 
-  private animate = () => {
+  /** Intervalo objetivo (ms): en pantallas de 120 Hz o más se dibuja cada k refrescos (~60 fps parejos). */
+  private static readonly FRAME_MS = 1000 / 60;
+  private lastRenderAt = -Infinity;
+  /** Intervalo medido entre refrescos de la pantalla (media móvil, ms). */
+  private refreshMs = 1000 / 60;
+  private lastTickAt = -1;
+  private tickCount = 0;
+
+  private animate = (now: number = performance.now()) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.animate);
+    // Tope de ~60 fps solo en pantallas rápidas (≥ ~105 Hz): se dibuja un refresco de cada k, con k entero, así
+    // el ritmo es parejo (120 Hz → 60, 144 Hz → 72, 165 Hz → 55). En 60/75/90/100 Hz se dibujan todos los refrescos.
+    // El dt sale del reloj (tiempo desde el último cuadro dibujado), así las animaciones no cambian de velocidad.
+    if (this.lastTickAt >= 0) {
+      const d = now - this.lastTickAt;
+      if (d > 2 && d < 50) this.refreshMs += (d - this.refreshMs) * 0.05;
+    }
+    this.lastTickAt = now;
+    const k = this.refreshMs <= 9.5 ? Math.max(1, Math.round(MapScene.FRAME_MS / this.refreshMs)) : 1;
+    if (++this.tickCount % k !== 0) return;
+    const elapsedMs = now - this.lastRenderAt;
+    this.lastRenderAt = now;
     const dt = Math.min(this.clock.getDelta(), 0.1);
     const t = this.clock.elapsedTime;
     this.terrainMat.uniforms.uTime.value = t;
     if (this.waterMat) this.waterMat.uniforms.uTime.value = t;
     if (this.bldMat) this.bldMat.uniforms.uTime.value = t;
     this.updateFacilityPulse(t);
-    if (this.fly) {
+    if (!this.cameraDriver && this.fly) {
       this.fly.t = Math.min(1, this.fly.t + dt * 1.2);
       const e = 1 - Math.pow(1 - this.fly.t, 3);
       this.camera.position.lerpVectors(this.fly.from, this.fly.to, e);
@@ -987,12 +1080,108 @@ export class MapScene {
       this.highlight.scale.set(s, 1, s);
     }
     this.updateRain(dt);
-    this.freeCam.update(dt);
-    if (!this.freeCam.active) this.controls.update();
+    if (this.cameraDriver) {
+      this.cameraDriver(dt, t);
+      this.camera.lookAt(this.controls.target);
+    } else {
+      this.freeCam.update(dt);
+      if (!this.freeCam.active) this.controls.update();
+    }
     this.composer.render();
-    this.labelRenderer.render(this.scene, this.camera);
-    if (++this.frame % 12 === 0) this.declutter();
+    this.renderLabels(now);
+    this.onAfterRender?.(this.renderer.domElement);
+    this.adaptResolution(now, elapsedMs);
   };
+
+  // ---------- rótulos ----------
+  /** Algo cambió en los rótulos (capas, estados, tamaño, exageración, tipografía) y hay que volver a ubicarlos. */
+  private labelsDirty = true;
+  private markLabelsDirty = () => { this.labelsDirty = true; };
+  private lastLabelView = new THREE.Matrix4();
+  private lastLabelProj = new THREE.Matrix4();
+  private lastLabelRenderAt = -Infinity;
+  private lastDeclutterFrame = -Infinity;
+  private declutterPending = false;
+
+  /**
+   * El CSS2DRenderer recorre y reubica cientos de rótulos del DOM: solo se llama cuando la cámara se movió
+   * (matriz de mundo o proyección distinta) o cuando algo marcó los rótulos como sucios. El despeje
+   * (solapamientos) mantiene su cadencia de cada 12 cuadros mientras hay movimiento, y corre una vez más
+   * al quedar quieta la cámara para que el estado final quede despejado.
+   */
+  private renderLabels(now: number) {
+    this.frame++;
+    const cam = this.camera;
+    const moved = !cam.matrixWorld.equals(this.lastLabelView) || !cam.projectionMatrix.equals(this.lastLabelProj);
+    if (moved || this.labelsDirty) {
+      this.labelRenderer.render(this.scene, cam);
+      this.lastLabelView.copy(cam.matrixWorld);
+      this.lastLabelProj.copy(cam.projectionMatrix);
+      this.labelsDirty = false;
+      this.lastLabelRenderAt = now;
+      this.declutterPending = true;
+    }
+    const sinceDeclutter = this.frame - this.lastDeclutterFrame;
+    const due = this.declutterPending && (sinceDeclutter >= 12 || now - this.lastLabelRenderAt >= 150);
+    // Red de seguridad con la cámara quieta (~1,5 s): cambios de estilo del DOM ajenos a la escena.
+    if (due || sinceDeclutter >= 90) {
+      this.declutter();
+      this.lastDeclutterFrame = this.frame;
+      // Si la cámara sigue moviéndose, el próximo render de rótulos lo vuelve a marcar pendiente.
+      this.declutterPending = false;
+    }
+  }
+
+  // ---------- resolución adaptativa (solo como resguardo) ----------
+  private maxPixelRatio = 1;
+  private perfWarmupUntil = 0;
+  private perfSlow = { sum: 0, n: 0, start: 0 };
+  private perfFast = { sum: 0, n: 0, start: 0 };
+  private prCeil = Infinity;
+  private prCeilUntil = 0;
+
+  /**
+   * Si el equipo no sostiene 30 fps (promedio > 36 ms en ~2 s; margen para el tope de 30 fps del ahorro de energía) y la pantalla es de alta densidad,
+   * baja la relación de píxeles de a 0,25 (nunca por debajo de 1). Si después anda holgado (< 20 ms en ~4 s),
+   * la vuelve a subir hasta min(devicePixelRatio, 2). En equipos capaces nunca se activa.
+   */
+  private adaptResolution(now: number, elapsedMs: number) {
+    if (this.maxPixelRatio <= 1) return;
+    const slow = this.perfSlow, fast = this.perfFast;
+    // Pestaña oculta, carga inicial o cuadros sueltos muy largos (pausas del hilo) no cuentan.
+    if (now < this.perfWarmupUntil || !(elapsedMs < 250)) {
+      slow.sum = slow.n = 0; slow.start = now;
+      fast.sum = fast.n = 0; fast.start = now;
+      return;
+    }
+    slow.sum += elapsedMs; slow.n++;
+    fast.sum += elapsedMs; fast.n++;
+    const pr = this.renderer.getPixelRatio();
+    if (now - slow.start >= 2000) {
+      if (slow.sum / slow.n > 36 && pr > 1) {
+        const next = Math.max(1, pr - 0.25);
+        this.prCeil = pr;
+        this.prCeilUntil = now + 30000;
+        this.applyPixelRatio(next);
+        fast.sum = fast.n = 0; fast.start = now;
+      }
+      slow.sum = slow.n = 0; slow.start = now;
+    }
+    if (now - fast.start >= 4000) {
+      if (fast.sum / fast.n < 20 && pr < this.maxPixelRatio) {
+        const next = Math.min(this.maxPixelRatio, pr + 0.25);
+        if (next < this.prCeil || now > this.prCeilUntil) this.applyPixelRatio(next);
+      }
+      fast.sum = fast.n = 0; fast.start = now;
+    }
+  }
+
+  private applyPixelRatio(pr: number) {
+    if (pr === this.renderer.getPixelRatio()) return;
+    this.renderer.setPixelRatio(pr);
+    // EffectComposer.setPixelRatio redimensiona sus render targets y los pases (bloom incluido).
+    this.composer.setPixelRatio(pr);
+  }
 
   private frame = 0;
   /** Oculta rótulos que se pisan: primero hospitales, después barrios, después calles. */
@@ -1013,13 +1202,52 @@ export class MapScene {
     }
   };
 
+  /**
+   * Libera todo lo que creó la escena (geometrías, materiales, texturas, render targets y rótulos del DOM):
+   * StrictMode y HMR recrean la escena y sin esto la memoria de GPU se acumula.
+   */
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.onResize);
+    document.fonts?.removeEventListener?.('loadingdone', this.markLabelsDirty);
+    this.cameraDriver = null;
+    this.onAfterRender = null;
     this.freeCam.dispose();
     this.controls.dispose();
+
+    const textures = new Set<THREE.Texture>();
+    const materials = new Set<THREE.Material>();
+    const geometries = new Set<THREE.BufferGeometry>();
+    const labels: CSS2DObject[] = [];
+    this.scene.traverse((o) => {
+      if (o instanceof CSS2DObject) { labels.push(o); return; }
+      const m = o as THREE.Mesh;
+      if (m.geometry) geometries.add(m.geometry);
+      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+      if (mat) for (const x of Array.isArray(mat) ? mat : [mat]) materials.add(x);
+    });
+    for (const mat of materials) {
+      const uniforms = (mat as THREE.ShaderMaterial).uniforms;
+      if (uniforms) for (const u of Object.values(uniforms)) if (u?.value instanceof THREE.Texture) textures.add(u.value);
+      for (const v of Object.values(mat)) if (v instanceof THREE.Texture) textures.add(v);
+    }
+    if (this.waterTex) textures.add(this.waterTex);
+    if (this.streetTex) textures.add(this.streetTex);
+    geometries.forEach((g) => g.dispose());
+    materials.forEach((m) => m.dispose());
+    textures.forEach((t) => t.dispose());
+    for (const o of labels) {
+      o.element.remove();
+      o.removeFromParent();
+    }
+    this.labels = [];
+    this.streetLabels = [];
+    this.facilityLabels = [];
+    for (const pass of this.composer.passes) (pass as { dispose?: () => void }).dispose?.();
+    this.composer.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
     this.labelRenderer.domElement.remove();
   }
