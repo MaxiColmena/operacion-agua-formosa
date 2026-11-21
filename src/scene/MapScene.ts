@@ -31,13 +31,18 @@ export interface Layers {
   lines: boolean;
   labels: boolean;
   facilities: boolean;
+  /** Mapa de calor de prioridad: zonas 1º/2º/3º ponderadas por población y vulnerabilidad (Censo 2022). */
+  priority: boolean;
+  /** Tipo de calzada: pavimentada, de tierra o sin dato (OpenStreetMap). */
+  surface: boolean;
 }
 
 /** Seco: tono apagado (por debajo del umbral de bloom); atención/afectado: vivos para resaltar. */
 const STATUS_COLOR: Record<FacilityStatus, THREE.Color> = {
   seco: new THREE.Color('#7b8593'),
-  atencion: new THREE.Color('#e3b04a'),
-  afectado: new THREE.Color('#e5525f'),
+  // Escala del agua: celeste = agua cerca, azul intenso = con agua (más oscuro, más peligroso). Sin rojos.
+  atencion: new THREE.Color('#8fd8ff'),
+  afectado: new THREE.Color('#3d63ff'),
 };
 
 /** Altura (km) del poste de cada instalación en estado seco: marcadores bajos y discretos. */
@@ -52,6 +57,16 @@ const ALERT_HEIGHT: Record<FacilityStatus, number> = { seco: 0, atencion: 0.28, 
 /** Profundidad del agua en la calzada: en zona urbana el agua de la celda se concentra en la calle. */
 export function streetDepth(d: number, urban: number) {
   return urban ? d / STREET.share : d;
+}
+
+/** Clave única de un barrio: OpenStreetMap repite algunos nombres (por ejemplo, «República Argentina»). */
+export function barrioKey(b: { name: string; lon: number; lat: number }) {
+  return `${b.name}|${b.lon.toFixed(5)}|${b.lat.toFixed(5)}`;
+}
+
+/** Profundidad para mostrar: en cm hasta 1 m; más arriba, "más de 1 m" (el modelo no da más precisión). */
+export function fmtDepth(m: number) {
+  return m >= 1 ? 'más de 1 m' : `~${Math.round(m * 100)} cm`;
 }
 
 export class MapScene {
@@ -259,12 +274,16 @@ export class MapScene {
         uZones: { value: zoneTex },
         uDrain: { value: drainTex },
         uShowDrain: { value: 0 },
+        uShowSurf: { value: 0 },
+        uSurfStart: { value: -100 },
         uLines: { value: linesTex },
         uRoads: { value: roadsTex },
         uWater: { value: this.streetTex },
         uWaterSize: { value: new THREE.Vector2(1, 1) },
         uStreet: { value: new THREE.Vector3(STREET.wet, STREET.curb, STREET.impassable) },
         uShowZones: { value: 0 },
+        uPriority: { value: new THREE.DataTexture(new Uint8Array(1), 1, 1, THREE.RedFormat, THREE.UnsignedByteType) },
+        uShowPriority: { value: 0 },
         uShowLines: { value: 1 },
         uTime: { value: 0 },
         fogColor: { value: new THREE.Color('#080b10') },
@@ -284,6 +303,8 @@ export class MapScene {
         uniform vec2 uWaterSize; uniform vec3 uStreet;
         uniform float uShowZones; uniform float uShowLines; uniform float uTime;
         uniform sampler2D uDrain; uniform float uShowDrain;
+        uniform sampler2D uPriority; uniform float uShowPriority;
+        uniform float uShowSurf; uniform float uSurfStart;
         uniform vec3 fogColor; uniform float fogDensity;
         varying float vElev; varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying float vFogDepth;
         float lineAt(float v, float w) { float f = fract(v); float d = min(f, 1.0 - f) / max(fwidth(v), 1e-4); return 1.0 - clamp(d / w, 0.0, 1.0); }
@@ -309,6 +330,17 @@ export class MapScene {
           if (rd.a > 0.01 && uShowLines > 0.5) {
             vec3 road = mix(vec3(0.3, 0.25, 0.18), vec3(0.2, 0.21, 0.23), rd.g);
             col = mix(col, road, rd.a * 0.8);
+            // Capa «Tipo de calle»: pavimentada gris claro, tierra ocre, sin dato gris tenue. Se revela en una onda
+            // que sale del centro de la ciudad (≈ 6 km/s) con un borde brillante.
+            if (uShowSurf > 0.5) {
+              float rad = (uTime - uSurfStart) * 6.0;
+              float dist = length(vW.xz);
+              float shown = 1.0 - smoothstep(rad - 0.4, rad, dist);
+              float front = smoothstep(rad - 0.5, rad - 0.1, dist) * (1.0 - smoothstep(rad - 0.1, rad + 0.05, dist));
+              vec3 sc = rd.b > 0.5 ? vec3(0.42, 0.45, 0.5) : rd.g > 0.5 ? vec3(0.82, 0.88, 0.95) : vec3(0.86, 0.56, 0.24);
+              col = mix(col, sc, rd.a * (rd.b > 0.5 ? 0.6 : 0.95) * shown);
+              col += vec3(0.6, 0.85, 1.0) * front * rd.a * 0.8;
+            }
             // Profundidad en la calle (canal G): bilineal manual sobre la grilla de simulación.
             vec2 p = tuv * uWaterSize - 0.5;
             vec2 f = fract(p); vec2 i0 = (floor(p) + 0.5) / uWaterSize; vec2 dt = 1.0 / uWaterSize;
@@ -316,15 +348,18 @@ export class MapScene {
                           mix(texture2D(uWater, i0 + vec2(0.0, dt.y)).g, texture2D(uWater, i0 + dt).g, f.x), f.y);
             // Solo se pinta desde el cordón (10 cm): con menos, toda la grilla de calles se teñía de azul.
             if (s > uStreet.y) {
-              vec3 wc = s < uStreet.z ? mix(vec3(0.16, 0.32, 0.78), vec3(0.42, 0.24, 0.72), (s - uStreet.y) / (uStreet.z - uStreet.y))
-                      : vec3(0.9, 0.26, 0.3) * (0.86 + 0.12 * sin(uTime * 5.0));
+              // Agua sobre el cordón: celeste → azul. Intransitable: azul profundo con franjas que se mueven.
+              float stripe = step(0.55, fract((vW.x + vW.z) * 28.0 - uTime * 1.4));
+              vec3 wc = s < uStreet.z ? mix(vec3(0.55, 0.85, 1.0), vec3(0.2, 0.55, 1.0), (s - uStreet.y) / (uStreet.z - uStreet.y))
+                      : mix(vec3(0.1, 0.18, 0.9), vec3(0.62, 0.9, 1.0), stripe * 0.55) * (0.88 + 0.16 * sin(uTime * 4.0));
               col = mix(col, wc * 0.95, min(1.0, rd.a * 1.6) * smoothstep(uStreet.y, uStreet.y + 0.03, s));
             }
           }
           // Zonas 1ª / 2ª / 3ª.
           float zone = floor(texture2D(uZones, tuv).r * 255.0 / 60.0 + 0.5);
           if (uShowZones > 0.5 && zone > 0.5) {
-            vec3 zc = zone < 1.5 ? vec3(0.82, 0.24, 0.28) : zone < 2.5 ? vec3(0.85, 0.5, 0.2) : vec3(0.85, 0.76, 0.32);
+            // 1º (lo primero que se afecta) = azul más profundo; 3º = celeste.
+            vec3 zc = zone < 1.5 ? vec3(0.12, 0.2, 0.9) : zone < 2.5 ? vec3(0.22, 0.55, 1.0) : vec3(0.58, 0.86, 1.0);
             float pulse = 0.52 + 0.06 * sin(uTime * 2.0 + vW.x * 3.0);
             col = mix(col, zc, pulse * (zone < 1.5 ? 0.85 : 0.7));
           }
@@ -333,6 +368,17 @@ export class MapScene {
           if (uShowDrain > 0.5 && dr > 0.02) {
             float hatch = step(0.5, fract((vW.x + vW.z) * 9.0));
             col = mix(col, vec3(0.18, 0.78, 0.62), dr * (0.28 + 0.3 * hatch));
+          }
+          // Prioridad por población (Censo 2022): mapa de calor amarillo → naranja → rojo → magenta.
+          if (uShowPriority > 0.5) {
+            float pv = texture2D(uPriority, tuv).r;
+            if (pv > 0.02) {
+              // Celeste (prioridad baja) → azul profundo (alta), con un latido suave donde la prioridad es alta.
+              vec3 hc = pv < 0.5 ? mix(vec3(0.6, 0.88, 1.0), vec3(0.22, 0.55, 1.0), pv / 0.5)
+                      : mix(vec3(0.22, 0.55, 1.0), vec3(0.1, 0.16, 0.82), (pv - 0.5) / 0.5);
+              float beat = 1.0 + 0.22 * pv * sin(uTime * 2.6 + vW.x * 2.0);
+              col = mix(col, hc * beat, 0.32 + 0.55 * pv);
+            }
           }
           float fog = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
           gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
@@ -377,7 +423,9 @@ export class MapScene {
         for (const r of osm.roads) {
           if (r.k !== k) continue;
           const a = k === 1 ? 1 : k === 2 ? 0.9 : 0.7;
-          rg.strokeStyle = r.paved ? `rgba(255,255,0,${a})` : `rgba(255,0,0,${a})`;
+          const sf = r.s ?? (r.paved ? 'p' : 't');
+          rg.strokeStyle = sf === 'p' ? `rgba(255,255,0,${a})` : sf === 't' ? `rgba(255,0,0,${a})` : `rgba(255,0,255,${a})`;
+          rg.setLineDash(sf === '?' ? [5, 4] : []);
           rg.lineWidth = k === 1 ? 4.5 : k === 2 ? 3 : 1.8;
           rg.beginPath();
           r.c.forEach(([lon, lat], i) => { const [x, y] = toPx(lon, lat); if (i) rg.lineTo(x, y); else rg.moveTo(x, y); });
@@ -454,8 +502,9 @@ export class MapScene {
           if (vRiver > 0.5) col = vec3(0.05, 0.14, 0.34);
           else if (uMode > 0.5 && vTWet >= 0.0) {
             float f = clamp(vTWet / max(uSimTime, 1.0), 0.0, 1.0);
-            col = f < 0.3334 ? vec3(0.85, 0.26, 0.3) : f < 0.6667 ? vec3(0.87, 0.52, 0.22) : vec3(0.87, 0.78, 0.34);
-            if (vTWet == 0.0) col = vec3(0.32, 0.4, 0.74);
+            // Lo que se mojó primero, azul profundo; lo último, celeste.
+            col = f < 0.3334 ? vec3(0.1, 0.18, 0.85) : f < 0.6667 ? vec3(0.22, 0.52, 0.98) : vec3(0.58, 0.86, 1.0);
+            if (vTWet == 0.0) col = vec3(0.16, 0.24, 0.5);
           }
           // Frente de avance: celdas mojadas hace poco brillan.
           float age = uSimTime - vTWet;
@@ -620,8 +669,9 @@ export class MapScene {
         varying float vRel; varying float vDepth;
         void main() {
           vec3 wall = mix(vec3(0.07, 0.08, 0.1), vec3(0.2, 0.24, 0.28), smoothstep(0.7, 1.0, vRel));
-          if (vDepth >= uThr) wall = mix(vec3(0.3, 0.06, 0.08), vec3(0.88, 0.3, 0.33), smoothstep(0.5, 1.0, vRel) * (0.88 + 0.12 * sin(uTime * 4.0)));
-          else if (vDepth >= 0.1) wall = mix(vec3(0.28, 0.2, 0.06), vec3(0.88, 0.66, 0.27), smoothstep(0.6, 1.0, vRel));
+          // Casas con agua: azul intenso que late, con el borde de arriba brillante. Agua cerca: celeste.
+          if (vDepth >= uThr) wall = mix(vec3(0.05, 0.08, 0.38), vec3(0.35, 0.58, 1.0), smoothstep(0.5, 1.0, vRel)) * (0.85 + 0.22 * sin(uTime * 4.0));
+          else if (vDepth >= 0.1) wall = mix(vec3(0.08, 0.16, 0.24), vec3(0.6, 0.88, 1.0), smoothstep(0.6, 1.0, vRel));
           gl_FragColor = vec4(wall, 0.95);
         }`,
     });
@@ -779,6 +829,17 @@ export class MapScene {
     this.flyTo(p, p.clone().add(new THREE.Vector3(0.6, 2.2, 2.6)));
   }
 
+  /** Vuela hasta una celda de la grilla de la simulación (por ejemplo, el punto más profundo de una calle). */
+  focusSimCell(cell: number) {
+    const { w } = this.waterGrid;
+    if (!w) return;
+    const f = this.meta.width / w;
+    const cx = ((cell % w) + 0.5) * f, cy = (Math.floor(cell / w) + 0.5) * f;
+    this.highlight.visible = false;
+    const p = this.cellToWorld(cx, cy, this.elevAt(cx, cy));
+    this.flyTo(p, p.clone().add(new THREE.Vector3(0.4, 1.4, 1.7)));
+  }
+
   private highlightIndex: number | null = null;
   private fly: { from: THREE.Vector3; to: THREE.Vector3; tFrom: THREE.Vector3; tTo: THREE.Vector3; t: number } | null = null;
   flyTo(target: THREE.Vector3, camPos: THREE.Vector3) {
@@ -795,6 +856,8 @@ export class MapScene {
       el.textContent = b.name;
       const obj = new CSS2DObject(el);
       obj.userData.anchor = [b.lon, b.lat, 0.06];
+      obj.userData.name = b.name;
+      obj.userData.key = barrioKey(b);
       obj.position.copy(this.lonLatToWorld(b.lon, b.lat, 0.06));
       this.labels.push(obj);
       this.scene.add(obj);
@@ -844,6 +907,57 @@ export class MapScene {
 
   setBarrioLabelState(state: ('seco' | 'atencion' | 'afectado')[]) {
     this.labels.forEach((l, i) => { l.element.dataset.state = state[i] ?? 'seco'; });
+  }
+
+  /**
+   * Estado de cada barrio por clave (nombre + ubicación; ver barrioKey): la lista de análisis no tiene el mismo
+   * orden que los rótulos (descarta barrios muy chicos) y hay nombres repetidos en OpenStreetMap.
+   */
+  setBarrioLabels(state: Map<string, 'seco' | 'atencion' | 'afectado'>) {
+    for (const l of this.labels) l.element.dataset.state = state.get(l.userData.key as string) ?? 'seco';
+  }
+
+  // ---------- calles que podrían quedar intransitables ----------
+  private streetAlerts: CSS2DObject[] = [];
+  /**
+   * Carteles animados sobre el mapa en las calles más afectadas. `cell` es una celda de la grilla de la
+   * simulación (la del punto más profundo de esa calle).
+   */
+  setStreetAlerts(items: { name: string; depth: number; cell: number }[], visible = true) {
+    const { w, h } = this.waterGrid;
+    while (this.streetAlerts.length < items.length) {
+      const el = document.createElement('div');
+      el.className = 'street-alert';
+      const obj = new CSS2DObject(el);
+      this.streetAlerts.push(obj);
+      this.scene.add(obj);
+    }
+    this.streetAlerts.forEach((o, k) => {
+      const it = items[k];
+      o.visible = !!it && visible && w > 0;
+      if (!it || !w) { o.element.innerHTML = ''; return; }
+      const f = this.meta.width / w;
+      const cx = ((it.cell % w) + 0.5) * f, cy = (Math.floor(it.cell / w) + 0.5) * f;
+      o.userData.cell = [cx, cy];
+      o.position.copy(this.cellToWorld(cx, cy, this.elevAt(cx, cy))).add(new THREE.Vector3(0, 0.05, 0));
+      const key = `${it.name}|${fmtDepth(it.depth)}`;
+      if (o.userData.key === key) return;
+      const isNew = !o.userData.key || !String(o.userData.key).startsWith(it.name + '|');
+      o.userData.key = key;
+      o.element.replaceChildren();
+      const icon = document.createElement('span');
+      icon.className = 'sa-icon no-pass';
+      const txt = document.createElement('span');
+      txt.className = 'sa-text';
+      const nm = document.createElement('b');
+      nm.textContent = it.name;
+      const dp = document.createElement('small');
+      dp.textContent = `agua ${fmtDepth(it.depth)} · podría cortarse`;
+      txt.append(nm, dp);
+      o.element.append(icon, txt);
+      if (isNew) { o.element.classList.remove('sa-in'); void o.element.offsetWidth; o.element.classList.add('sa-in'); }
+    });
+    void h;
   }
 
   // ---------- lluvia ----------
@@ -920,6 +1034,10 @@ export class MapScene {
 
     // Instalaciones y rótulos.
     this.placeFacilities();
+    for (const o of this.streetAlerts) {
+      const c = o.userData.cell as [number, number] | undefined;
+      if (c) o.position.copy(this.cellToWorld(c[0], c[1], this.elevAt(c[0], c[1]))).add(new THREE.Vector3(0, 0.05, 0));
+    }
     for (const o of [...this.labels, ...this.streetLabels]) {
       const a = o.userData.anchor as [number, number, number] | undefined;
       if (a) o.position.copy(this.lonLatToWorld(a[0], a[1], a[2]));
@@ -942,8 +1060,27 @@ export class MapScene {
     }
   }
 
+  // ---------- prioridad por población ----------
+  /** Carga el mapa de calor de prioridad (valores 0–1 sobre la grilla de la simulación). */
+  setPriorityHeat(values: Float32Array, width: number, height: number) {
+    const old = this.terrainMat.uniforms.uPriority.value as THREE.DataTexture;
+    // 8 bits alcanzan para colorear y el filtrado lineal funciona en cualquier placa (los float no siempre).
+    const bytes = new Uint8Array(values.length);
+    for (let i = 0; i < values.length; i++) bytes[i] = Math.round(Math.min(1, Math.max(0, values[i])) * 255);
+    const tex = new THREE.DataTexture(bytes, width, height, THREE.RedFormat, THREE.UnsignedByteType);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    this.terrainMat.uniforms.uPriority.value = tex;
+    old.dispose();
+  }
+
   // ---------- capas ----------
   setLayers(l: Layers) {
+    this.terrainMat.uniforms.uShowPriority.value = l.priority ? 1 : 0;
+    // Al prender «Tipo de calle», la onda arranca de nuevo desde el centro.
+    if (l.surface && !this.terrainMat.uniforms.uShowSurf.value) this.terrainMat.uniforms.uSurfStart.value = this.clock.elapsedTime;
+    this.terrainMat.uniforms.uShowSurf.value = l.surface ? 1 : 0;
     if (this.water) this.water.visible = l.water;
     this.terrainMat.uniforms.uShowZones.value = l.zones ? 1 : 0;
     this.terrainMat.uniforms.uShowDrain.value = l.drainage ? 1 : 0;
@@ -951,6 +1088,7 @@ export class MapScene {
     if (this.buildings) this.buildings.visible = l.buildings;
     this.labels.forEach((o) => (o.visible = l.labels));
     this.streetLabels.forEach((o) => (o.visible = l.lines && l.labels));
+    this.streetAlerts.forEach((o) => (o.visible = l.lines && !!o.element.childElementCount));
     this.facilityLabels.forEach((o) => (o.visible = l.labels && l.facilities));
     if (this.beams) this.beams.visible = l.facilities;
     if (this.bases) this.bases.visible = l.facilities;
@@ -999,7 +1137,7 @@ export class MapScene {
   private declutter() {
     const kept: DOMRect[] = [];
     const far = this.camera.position.distanceTo(this.controls.target) > 9;
-    for (const group of [this.facilityLabels, this.labels, this.streetLabels]) {
+    for (const group of [this.streetAlerts, this.facilityLabels, this.labels, this.streetLabels]) {
       for (const o of group) {
         const el = o.element;
         if (!o.visible) continue;

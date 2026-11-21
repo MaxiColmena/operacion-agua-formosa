@@ -5,6 +5,8 @@
 
 **Estado:** **prototipo funcional** del simulador 3D (rama `dev-lucas`). Más abajo sigue la investigación que le dio origen.
 
+📁 **[Carpeta técnica](docs/carpeta-tecnica.md):** usuarios finales, stack tecnológico, modelos, herramientas de IA, datos, instalación, pruebas y limitaciones.
+
 ---
 
 ## 0. El simulador (prototipo)
@@ -18,6 +20,8 @@ Requisitos: Node.js 20 o superior.
 ```bash
 npm install
 npm run dev        # abre http://localhost:5173
+npm test           # checks del modelo, de los datos y de la prioridad (Vitest)
+npm run build      # chequeo de tipos (TypeScript) + compilación
 ```
 
 Los datos procesados ya están en `public/data/`. Para regenerarlos desde cero:
@@ -40,7 +44,15 @@ curl -o data-raw/cop_S27.tif https://copernicus-dem-30m.s3.amazonaws.com/Coperni
 
 Los edificios vienen de Microsoft Global ML Building Footprints. El script `build-buildings` espera los archivos `data-raw/msb_*.csv.gz` del quadkey 210301321 (Argentina y Paraguay), que figuran en el índice `https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv`.
 
-**Licencias de datos:** FABDEM CC BY-NC-SA 4.0 (Hawker et al. 2022, Univ. de Bristol / Fathom; uso no comercial), OpenStreetMap ODbL, Microsoft Building Footprints ODbL.
+Escuelas y censo (ya procesados en `public/data/`):
+
+```bash
+npm run data:escuelas   # Mapa Educativo Nacional (WFS) → public/data/escuelas-men.json
+npm run data:censo      # Censo 2022 por radio → public/data/poblacion.json
+                        # antes: bajar data-raw/radios.parquet y data-raw/census-data.parquet (ver el script)
+```
+
+**Licencias de datos:** FABDEM CC BY-NC-SA 4.0 (Hawker et al. 2022, Univ. de Bristol / Fathom; uso no comercial), OpenStreetMap ODbL, Microsoft Building Footprints ODbL, Mapa Educativo Nacional CC BY 4.0, Censo 2022 (INDEC, vía source.coop, CC BY 4.0).
 
 ### Qué se puede hacer
 
@@ -51,7 +63,37 @@ Los edificios vienen de Microsoft Global ML Building Footprints. El script `buil
 - **Hacer llover:** la simulación corre en vivo, a 5, 15 o 30 minutos simulados por segundo.
 - **Orden de afectación:** lista de calles, barrios e infraestructura (hospitales, salud, escuelas, bomberos y policía, servicios, municipio y asistencia social) ordenada por el momento en que el agua los alcanza. Cada uno indica su **nivel de referencia** (1º, 2º o 3º).
 - **Capas:** agua en vivo, coloreada por profundidad o por **orden de llegada**; zonas precalculadas 1º/2º/3º; edificios, calles, riachos y barrios.
-- **Transparencia:** etiquetas OBSERVADO / PREVISIÓN INA / ESCENARIO DEL USUARIO y un panel con supuestos, datos y límites, como pide la guía.
+- **Transparencia:** etiquetas OBSERVADO (4,96 m, aguas medias, 17/11/2026) / PREVISIÓN INA (~4,55 m ± 0,3 al 25/11, estimado) / ESCENARIO DEL USUARIO, siempre visibles, y un panel con supuestos, datos, límites, validación y el checklist de la guía.
+- **Supuesto de cada escenario:** cuánto sube el río y **en cuántos días** (al ritmo de la crecida de octubre de 2026, ~14 cm/día), cuánta lluvia en cuánto tiempo, horizonte y «confianza baja».
+- **Escuelas del padrón oficial** (Mapa Educativo Nacional, 288 establecimientos en 281 edificios) en lugar de las de OpenStreetMap.
+- **Margen paraguaya:** las instalaciones, barrios y calles de Alberdi (Paraguay) no cuentan en los resultados.
+- **Tipo de calle** (capa del mapa): pavimentada, de tierra o sin dato, según la etiqueta «surface» de OpenStreetMap, con un revelado animado desde el centro. En Formosa: ~385 km pavimentados, ~679 km de tierra y ~152 km sin dato (13 %). Las calles sin dato ya no se cuentan como asfaltadas. En la lista de calles cortadas, las de tierra llevan la marca «tierra». Se actualiza con `npm run data:calles`.
+
+### Prioridad por población (Censo 2022)
+
+Las zonas 1º, 2º y 3º dicen **qué se afecta primero**. Pero un barrio alejado donde viven pocas familias no pesa lo mismo que un barrio denso y vulnerable que también está en peligro. La pestaña **Prioridad** y la capa **Prioridad (población)** ordenan los barrios con **datos sociodemográficos reales** del Censo 2022 (INDEC, por radio censal):
+
+> **puntaje = personas × urgencia × vulnerabilidad**
+> - **Personas:** las que viven en las celdas afectadas.
+> - **Urgencia:** zona 1º ×3, 2º ×2, 3º ×1 (modo «plan»). En «escenario en curso»: el agua que llegó en el primer tercio del tiempo ×3, en el segundo ×2 y en el último ×1.
+> - **Vulnerabilidad:** promedio de tres proporciones del radio censal comparadas con la ciudad: **hogares con NBI**, **niños ≤ 14 y mayores ≥ 65**, **personas sin obra social ni plan de salud**. 1 = promedio; entre 0,5 y 2.
+
+Cada barrio tiene una **ficha** con su perfil: población, hogares, NBI, niños y mayores, sin cobertura de salud, hacinamiento, sin cloaca o agua de red y viviendas precarias. Datos del área: **253.833 personas**, 83.559 hogares, **8.200 hogares con NBI**, 56.661 niños de hasta 14 años y 23.763 personas de 65 o más (la ciudad con Villa del Carmen tiene 260.325 según el mismo censo).
+
+**Dónde vive la gente (reparto por edificios).** El censo da totales por radio censal. En lugar de repartirlos parejo por toda la superficie del radio (que ponía gente en el campo, en el río y en lagunas), cada radio se reparte según la **superficie de edificios** que tiene adentro (Microsoft Building Footprints, tope de 400 m² por edificio). La población ubicada sobre río o lagunas bajó de 1,6 % a 0,4 %. Solo 2 radios sin edificios (1.226 personas) siguen con reparto parejo.
+
+**Barrios.** OpenStreetMap tiene cada barrio como un punto, no con sus límites: cada lugar se asigna al barrio más cercano (hasta 1,2 km). Como OSM no tiene el microcentro, se agregó **«Centro»** en la Plaza San Martín; antes todo el centro se contaba dentro de San Martín. Son límites aproximados.
+
+### Evaluación para autoridades (río en nivel de evacuación)
+
+Cuando el escenario pone el río en **8,30 m o más** (nivel de evacuación del INA en Puerto Formosa), aparece arriba un aviso azul que late: **«Río en nivel de evacuación · Ver evaluación para autoridades»**. Al tocarlo se abre un panel aparte, pensado para Defensa Civil, con:
+
+- el total de **familias** (hogares del Censo 2022), personas, niños, mayores y hogares con NBI en zonas con agua;
+- los **barrios ordenados por prioridad** (personas con agua × urgencia por llegada × vulnerabilidad), con «X familias con agua de Y que viven ahí» y desde qué altura del río se afecta cada uno.
+
+Está redactado como **«familias a evaluar para una posible evacuación»**: es una herramienta para evaluar, no una orden. La decisión de evacuar es de Defensa Civil, y las rutas y centros de evacuados son del Equipo 3. Las familias no se muestran en el mapa ni en los paneles comunes: solo en este apartado.
+
+**Validación:** el panel «Supuestos y límites» cruza 6 barrios que la prensa reportó con agua (4 por lluvia, 2 por la crecida de 2015) con lo que marca el modelo. Son pocos casos: sirve para detectar contradicciones, no es una validación estadística. Fuentes en [docs/casos-y-alerta-refsa.md](docs/casos-y-alerta-refsa.md) y en `src/validation.ts`. No reemplaza al Equipo 4 (registro de incidentes): solo usa notas ya publicadas para comprobar el modelo.
 
 ### Cómo está hecho
 
@@ -62,8 +104,11 @@ Los edificios vienen de Microsoft Global ML Building Footprints. El script `buil
 | Escenarios y supuestos | `src/sim/scenarios.ts` | Niveles 1/2/3, crecida de 1983 y todos los supuestos numéricos |
 | Escena 3D | `src/scene/MapScene.ts` | Three.js: terreno con curvas de nivel, agua, edificios, columnas de luz y lluvia |
 | Análisis | `src/analysis.ts` | Cruza el agua con barrios e infraestructura: estado, primer contacto y nivel 1º/2º/3º |
+| Prioridad | `src/priority.ts` | Censo en la grilla, índice de vulnerabilidad, puntaje por celda y por barrio, mapa de calor |
+| Validación | `src/validation.ts` | Barrios reportados con agua por la prensa, con fuente, y su cruce con el modelo |
+| Checks | `tests/` | Vitest: motor (bañadera, brecha, conservación de la masa, desagüe), datos reales (zonas al día, defensa, escuelas oficiales, margen paraguaya), prioridad y validación |
 | Interfaz | `src/App.tsx` | Paneles de escenario, orden de afectación, capas y supuestos |
-| Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua), `build-drainage` (red pluvial relevada) y `build-zones` (zonas 1º/2º/3º a 30 m) |
+| Datos | `scripts/` | `build-terrain` (MDE), `fetch-osm` (OpenStreetMap), `build-masks` (río, defensa, agua), `build-drainage` (red pluvial relevada), `build-zones` (zonas 1º/2º/3º a 30 m), `fetch-escuelas` (Mapa Educativo Nacional) y `build-censo` (Censo 2022) |
 
 **Supuesto clave a confirmar:** el **cero de escala de Puerto Formosa**. Se usa **47,30 m IGN**, deducido del dato oficial del Gobierno de Formosa (08/12/2015): la cota IGN 59 m equivale a 11,70 m de escala en el puerto. Falta confirmarlo con el INA y verificar la diferencia de dátum con el terreno (FABDEM está en EGM2008). Si cambia, se edita en `src/sim/scenarios.ts` y se corren `npm run data:zones` y `npm run data:thresholds`.
 
@@ -394,10 +439,10 @@ Comparar y detectar cambios en imágenes satelitales es el desafío del **Equipo
 | # | Pregunta | Respuesta |
 |---|---|---|
 | 01 | ¿Quién la usaría? | Operador o técnico de Defensa Civil o del municipio que prepara la respuesta ante un temporal o una crecida |
-| 02 | ¿Qué necesidad atiende? | Saber **qué calles, barrios e instalaciones revisar primero** según cuánto llueva y qué tan alto esté el río |
-| 03 | ¿Función principal? | Elegir un escenario (lluvia + río), **hacer llover** sobre un mapa 3D de Formosa Capital y ver el **orden** en que se afectan calles, barrios e infraestructura, con los supuestos a la vista |
-| 04 | ¿Qué datos y de dónde? | Río: Prefectura/INA (parte provincial del 17/11/2026) y niveles de alerta y evacuación del INA. Lluvia: escenarios declarados y pronóstico a 7 días (Open-Meteo, estimado). Terreno: FABDEM. Calles, barrios e instalaciones: OpenStreetMap. Edificios: Microsoft Building Footprints. Defensa: dato oficial provincial de 2015 |
-| 05 | ¿Qué se muestra al jurado? | "Elijo el Nivel 2 (105 mm con el río en alerta), toco Hacer llover y en dos minutos aparecen, en orden, las calles intransitables, los barrios y las escuelas y centros de salud que se mojan primero. Después subo el río a 1983 y activo la rotura de la defensa" |
+| 02 | ¿Qué necesidad atiende? | Saber **dónde actuar primero**: qué calles, barrios e instalaciones revisar antes según cuánto llueva y qué tan alto esté el río, **y cuánta gente vulnerable vive ahí**, para poner los recursos donde más personas están en peligro |
+| 03 | ¿Función principal? | Elegir un escenario (lluvia + río), **hacer llover** sobre un mapa 3D de Formosa Capital y ver el **orden de prioridad de los barrios** (personas × urgencia × vulnerabilidad, Censo 2022) y el **orden** en que se afectan calles e infraestructura, con los supuestos a la vista |
+| 04 | ¿Qué datos y de dónde? | Río: Prefectura/INA (parte provincial del 17/11/2026) y niveles de alerta y evacuación del INA. Lluvia: escenarios declarados y pronóstico a 7 días (Open-Meteo, estimado). Terreno: FABDEM. Población, hogares, NBI, edades y cobertura de salud: **Censo 2022 (INDEC)** por radio censal. Escuelas: **Mapa Educativo Nacional**. Calles, barrios y demás instalaciones: OpenStreetMap. Edificios: Microsoft Building Footprints. Defensa: dato oficial provincial de 2015 |
+| 05 | ¿Qué se muestra al jurado? | "Abro **Prioridad**: el mapa de calor y la lista dicen dónde actuar primero según la gente que vive ahí. Muestro que un barrio de nivel 1º con pocas familias queda debajo de uno denso y vulnerable. Elijo el Nivel 2 (105 mm con el río en alerta), toco Hacer llover y cambio a «escenario en curso»: la lista se reordena con el agua de la simulación y aparecen personas, niños, mayores y hogares con NBI con agua. Después subo el río a 1983 y activo la rotura de la defensa. Cierro con la validación y los límites" |
 | 06 | ¿Qué no podemos asegurar? | Qué manzana se inunda ni a qué hora: el terreno tiene 1–2 m de error y no conocemos los desagües ni el estado de las bombas. La escala del río mide un solo punto. El listado de OSM puede tener faltantes (sección 13) |
 | 07 | ¿Por qué IA o tecnología? | La simulación física junta en segundos terreno, río, lluvia y edificios que hoy están dispersos, y la hace entendible en 3D para quien no es técnico. La IA está en los datos (terreno sin edificios con FABDEM, huellas de edificios detectadas con aprendizaje profundo). Cada número se explica y no se inventan categorías |
 
@@ -432,7 +477,7 @@ Comparar y detectar cambios en imágenes satelitales es el desafío del **Equipo
 
 1. Confirmar con el INA el **cero de escala IGN de Puerto Formosa** (hoy 47,30 m, deducido del dato provincial de 2015).
 2. Conseguir los límites en metros de las **categorías del INA** para Puerto Formosa (o la serie 1991–2020 para calcularlos) y así clasificar también las alturas hipotéticas.
-3. Reemplazar las escuelas de OSM por el **Mapa Educativo Nacional** y sumar población del **Censo 2022** por radio censal.
+3. ~~Reemplazar las escuelas de OSM por el Mapa Educativo Nacional y sumar población del Censo 2022~~: hecho. Falta sumar los polígonos del **RENABAP** (barrios populares) a la vulnerabilidad (el servidor estaba en mantenimiento el 19/11/2026).
 4. Validar por fuera de la app contra los mapas de **CONAE de enero de 2016**.
 5. Transcribir la **tabla de estaciones de bombeo** del informe INA.
 6. Antes de la presentación, actualizar el dato observado con el último parte del INA o de la provincia.
@@ -484,6 +529,13 @@ Comparar y detectar cambios en imágenes satelitales es el desafío del **Equipo
 - Google Open Buildings 2.5D Temporal: https://sites.research.google/gr/open-buildings/temporal
 - REFES (datos.gob.ar): https://www.datos.gob.ar/dataset/salud-listado-establecimientos-salud-asentados-registro-federal-refes
 - Censo 2022 + radios en Parquet: https://source.coop/nlebovits/censo-argentino/2022
+
+**Datos sociodemográficos y escuelas**
+- INDEC – Censo 2022 por radio censal, todas las variables (REDATAM), vía source.coop (CC BY 4.0): https://source.coop/nlebovits/censo-argentino/2022
+- Rodriguez y de Grande (CONICET) – Radios censales corregidos y estandarizados: https://ri.conicet.gov.ar/handle/11336/149711
+- Mapa Educativo Nacional – WFS de establecimientos (CC BY 4.0): https://mapa.educacion.gob.ar/geoservicios
+- INA – Reporte diario del 19/11/2026 (previsión a corto plazo de Puerto Formosa): https://alerta.ina.gob.ar/ina/06-INFORMES/diario/pdf/reporte_diario_2026-11-19.pdf
+- UNMdP – "Cuando los mapas aprenden a pensar" (GeoAI): https://humanidades.mdp.edu.ar/inteligencia-artificial-geoespacial-geoai/
 
 **Modelos y visualización**
 - NOAA – Ficha del método HAND: https://www.weather.gov/media/owp/operations/HAND_factsheet.pdf
