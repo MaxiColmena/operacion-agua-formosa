@@ -1,37 +1,30 @@
 import { useEffect } from 'react';
-
-const KEY = 'oa-guide-seen-v1';
-
-/** ¿Ya vio la guía? Si el almacenamiento falla (modo privado, etc.), se muestra igual. */
-export function guideSeen(): boolean {
-  try { return localStorage.getItem(KEY) === '1'; } catch { return false; }
-}
-export function markGuideSeen() {
-  try { localStorage.setItem(KEY, '1'); } catch { /* sin almacenamiento: no pasa nada */ }
-}
+import { Icon } from './icons';
 
 const STEPS = [
-  { t: 'Elegí un escenario', d: 'Arriba a la izquierda: Nivel 1, 2, 3 o la crecida histórica de 1983. Cada uno combina cuánta lluvia cae y qué tan alto está el río Paraguay.' },
-  { t: 'Hacé llover', d: 'Tocá el botón azul «Hacer llover». El agua cae, corre por las pendientes y se junta en los bajos, en tiempo acelerado.' },
-  { t: 'Mirá qué se afecta primero', d: 'A la derecha aparecen las calles, barrios e instalaciones (hospitales, escuelas…) ordenados por cuándo les llega el agua. Hacé clic en uno para verlo en el mapa.' },
-  { t: 'Revisá supuestos y límites', d: 'Es un escenario hipotético, no un pronóstico. En «Supuestos y límites» (abajo a la derecha) está qué datos usamos y qué no podemos asegurar.' },
+  { t: 'Elegí un escenario', d: 'Lluvia y altura del río Paraguay, con niveles de referencia y crecidas históricas.' },
+  { t: 'Hacé llover', d: 'El agua cae, escurre por las pendientes y se junta en los bajos, en tiempo acelerado.' },
+  { t: 'Mirá qué se afecta primero', d: 'Calles, barrios e instalaciones ordenados por cuándo les llega el agua.' },
+  { t: 'Decidí con datos', d: 'El tablero de análisis resume prioridades, márgenes del río y el valor de la defensa.' },
 ];
 
-export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onShowInfo: () => void }) {
+/**
+ * Welcome screen shown every time the app starts. «Empezar» launches the automatic guided tour.
+ */
+export function WelcomeGuide({ ready, onStart, onSkip, onPresent }: { ready: boolean; onStart: () => void; onSkip: () => void; onPresent: () => void }) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onSkip(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onSkip]);
 
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" onClick={(e) => e.stopPropagation()}>
-        <button className="x" onClick={onClose} aria-label="Cerrar la guía">×</button>
-        <small className="guide-kicker">¿Qué es esto?</small>
-        <h2 id="guide-title">Un simulador de qué pasa en Formosa cuando llueve fuerte y crece el río</h2>
+    <div className="modal-bg welcome-bg">
+      <div className="modal guide" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+        <span className="eyebrow">Operación Agua · Formosa Capital</span>
+        <h2 id="guide-title">Qué pasa en Formosa cuando llueve fuerte y crece el río</h2>
         <p className="lead">
-          Ves la ciudad en 3D. Elegís cuánta lluvia cae y a qué altura está el río Paraguay, y el programa muestra
+          Un simulador 3D de la ciudad: elegís cuánta lluvia cae y a qué altura está el río, y muestra
           <b> por dónde corre el agua, qué calles se cortan y qué barrios e instalaciones se afectan primero</b>.
         </p>
         <ol className="guide-steps">
@@ -39,14 +32,14 @@ export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onS
             <li key={s.t}><span className="guide-n">{i + 1}</span><div><b>{s.t}</b><p>{s.d}</p></div></li>
           ))}
         </ol>
-        <p className="hint">
-          Mover el mapa: arrastrá para rotar, rueda para acercar, clic derecho para desplazar. Pasá el mouse por cualquier botón para ver qué hace.
-        </p>
         <div className="guide-actions">
-          <button className="btn ghost" onClick={() => { onClose(); onShowInfo(); }}>Ver supuestos y límites</button>
-          <button className="btn primary" onClick={onClose} autoFocus>Empezar</button>
+          <button className="btn ghost" onClick={onSkip}>Explorar por mi cuenta</button>
+          <button className="btn" onClick={onPresent} disabled={!ready}><Icon name="film" size={16} />Presentación</button>
+          <button className="btn primary lg" onClick={onStart} disabled={!ready} autoFocus>
+            <Icon name="play" size={16} />{ready ? 'Empezar' : 'Cargando el modelo…'}
+          </button>
         </div>
-        <p className="hint guide-foot">Podés volver a ver esta guía con el botón «¿Cómo se usa?» de arriba.</p>
+        <p className="hint guide-foot">«Empezar» inicia un recorrido automático por todas las funciones (Esc para salir en cualquier momento).</p>
       </div>
     </div>
   );
