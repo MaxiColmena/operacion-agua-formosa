@@ -82,11 +82,17 @@ export default function App() {
   // Los paneles laterales terminan justo arriba del dock, que cambia de alto según el ancho y las capas visibles.
   const appRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLElement>(null);
+  const topRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    const dock = dockRef.current, app = appRef.current;
-    if (!dock || !app) return;
-    const ro = new ResizeObserver(() => app.style.setProperty('--dock-h', `${dock.offsetHeight}px`));
+    const dock = dockRef.current, top = topRef.current, app = appRef.current;
+    if (!dock || !top || !app) return;
+    // The top bar wraps differently on every screen: panels, sheets and cards start right below its real bottom edge.
+    const ro = new ResizeObserver(() => {
+      app.style.setProperty('--dock-h', `${dock.offsetHeight}px`);
+      app.style.setProperty('--top-h', `${Math.round(top.getBoundingClientRect().bottom)}px`);
+    });
     ro.observe(dock);
+    ro.observe(top);
     return () => ro.disconnect();
   }, []);
 
@@ -302,7 +308,7 @@ export default function App() {
       <div ref={mountRef} className="viewport" />
       {!data && <div className="loading"><div className="spinner" />Cargando terreno de Formosa…</div>}
 
-      <header className="topbar">
+      <header className="topbar" ref={topRef}>
         <div className="brand">
           <img className="brand-mark" src="/icons/icon.svg" alt="" width={36} height={36} />
           <div>
@@ -312,16 +318,16 @@ export default function App() {
         </div>
         <div className="sources" aria-label="Fuentes: dato observado, previsión del INA y escenario hipotético">
           <span className="src src-obs" data-tip={`Altura real del río Paraguay medida en Puerto Formosa (${RIVER_REF.observed.trend}). Categoría según la escala del INA. Fuente: ${RIVER_REF.observed.source}.`}>
-            <small><i aria-hidden="true" />Observado · {RIVER_REF.observed.date}</small>
+            <small><i aria-hidden="true" />Observado<span className="src-date"> · {RIVER_REF.observed.date}</span></small>
             <b>Río {fmtStage(RIVER_REF.observed.stage)} · {RIVER_REF.observed.inaCategory}</b>
           </span>
           <a className="src src-ina" href={FORECAST_INA.url} target="_blank" rel="noreferrer"
             data-tip={`Estimación del INA, no una medición. ${FORECAST_INA.text} Fuente: ${FORECAST_INA.source}. Clic para abrir el reporte.`}>
-            <small><i aria-hidden="true" />Previsión INA · al {FORECAST_INA.until.slice(0, 5)}</small>
+            <small><i aria-hidden="true" />Previsión INA<span className="src-date"> · al {FORECAST_INA.until.slice(0, 5)}</span></small>
             <b>~{fmtStage(FORECAST_INA.stage)} ± {FORECAST_INA.margin.toFixed(1).replace('.', ',')} <Icon name="external" size={13} /></b>
           </a>
           <span className="src src-user" data-tip="Lo que ves en el mapa es un escenario que elegís vos: hipotético, no un pronóstico.">
-            <small><i aria-hidden="true" />Escenario del usuario</small>
+            <small><i aria-hidden="true" />Escenario<span className="src-date"> del usuario</span></small>
             <b>Hipotético</b>
           </span>
         </div>

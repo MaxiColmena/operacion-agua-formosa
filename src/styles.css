@@ -209,12 +209,12 @@ a.src .icon-svg { color: var(--text-3); }
 
 /* ---------- side panels ---------- */
 .panel {
-  position: absolute; top: 86px; bottom: calc(var(--dock-h, 84px) + 24px); width: 340px; padding: var(--s3) var(--s4) var(--s4);
+  position: absolute; top: calc(var(--top-h, 74px) + var(--s3)); bottom: calc(var(--dock-h, 84px) + 24px); width: 21.25rem; padding: var(--s3) var(--s4) var(--s4);
   overflow-y: auto; overscroll-behavior: contain; z-index: 2;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow);
 }
 .panel.left { left: var(--s3); }
-.panel.right { right: var(--s3); width: 380px; display: flex; flex-direction: column; }
+.panel.right { right: var(--s3); width: 23.75rem; display: flex; flex-direction: column; }
 /* Only the list scrolls inside the results panel; everything above keeps its height. */
 .panel.right > :not(.list) { flex-shrink: 0; }
 .panel-head { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s2); min-height: 32px; }
@@ -413,7 +413,7 @@ a.src .icon-svg { color: var(--text-3); }
 
 /* ---------- floating cards ---------- */
 .card {
-  position: absolute; left: 50%; top: 86px; transform: translateX(-50%); width: 360px; max-height: calc(100% - var(--dock-h, 84px) - 120px); overflow-y: auto;
+  position: absolute; left: 50%; top: calc(var(--top-h, 74px) + var(--s3)); transform: translateX(-50%); width: 22.5rem; max-height: calc(100% - var(--dock-h, 84px) - 120px); overflow-y: auto;
   padding: var(--s4) var(--s4) var(--s3); z-index: 3;
   background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow);
   animation: card-in 0.25s var(--ease-out);
@@ -431,7 +431,7 @@ a.src .icon-svg { color: var(--text-3); }
   border-radius: var(--r-md); background: none; border: 0; color: var(--text-2);
 }
 .x:hover { background: var(--surface-3); color: var(--text); }
-.barrio-card { width: 400px; }
+.barrio-card { width: 25rem; }
 .barrio-card .prio-rank { margin: -6px 0 var(--s3); font-size: var(--fs-sm); color: var(--text-2); }
 .barrio-card .prio-rank b { color: var(--text); }
 
@@ -519,13 +519,13 @@ a.src .icon-svg { color: var(--text-3); }
   animation: impact-in 0.4s var(--ease-out); pointer-events: none;
 }
 .impact .im-item { display: flex; align-items: center; gap: 10px; }
-.impact b { font-size: var(--fs-2xl); font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: #b8ceff; font-variant-numeric: tabular-nums; }
+.impact b { white-space: nowrap; font-size: var(--fs-2xl); font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: #b8ceff; font-variant-numeric: tabular-nums; }
 .impact .im-item span:last-child { font-size: var(--fs-md); color: var(--text-2); }
 .impact em { font-size: var(--fs-xs); color: var(--text-3); font-style: normal; padding-left: var(--s3); border-left: 1px solid var(--border); }
 @keyframes impact-in { from { transform: translate(-50%, 8px); opacity: 0; } }
 
 .evac-alert {
-  position: absolute; left: 50%; top: 86px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: var(--s3);
+  position: absolute; left: 50%; top: calc(var(--top-h, 74px) + var(--s3)); transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: var(--s3);
   min-height: 44px; padding: 0 var(--s4); border-radius: var(--r-lg); border: 1px solid #7fa6ff; background: #17306f; color: #eef3ff;
   box-shadow: var(--shadow); font-size: var(--fs-sm); animation: evac-in 0.35s var(--ease-out);
 }
@@ -641,14 +641,25 @@ a.src .icon-svg { color: var(--text-3); }
 .auth-foot { font-size: var(--fs-sm); color: var(--text-3); line-height: 1.55; margin: var(--s3) 0 0; max-width: 80ch; }
 .auth-foot b { color: var(--text-2); }
 
-/* Mobile navigation exists only on small screens. */
+/* Mobile navigation and sheet handles exist only in sheet mode. */
 .mobile-nav { display: none; }
 .sheet-handle { display: none; }
 
-/* ---------- medium screens ---------- */
+/* ==========================================================================
+   Responsive system
+   Desktop (>= 1200px wide and > 520px tall): two side panels + dock.
+   Sheet mode (< 1200px wide, or <= 520px tall): one sheet at a time + bottom nav.
+     - phone portrait     (<= 600px): bottom sheet, sources in 3 columns
+     - tablet portrait    (601-899px): centered bottom sheet, single-row top bar
+     - side sheet         (900-1199px, and every screen <= 520px tall): sheet on the left, map on the right
+     - phone landscape    (<= 520px tall): side sheet plus a compact top bar and nav
+   Large monitors scale the whole rem-based UI.
+   ========================================================================== */
+
+/* ---------- desktop refinements ---------- */
 @media (max-width: 1240px) {
-  .panel.left { width: 300px; }
-  .panel.right { width: 330px; }
+  .panel.left { width: 19rem; }
+  .panel.right { width: 21rem; }
   .brand p { display: none; }
   .help-btn span { display: none; }
   .help-btn { padding: 0 var(--s3); }
@@ -660,29 +671,44 @@ a.src .icon-svg { color: var(--text-3); }
   .impact em { display: none; }
 }
 
-/* ---------- phones and small tablets: panels become bottom sheets ---------- */
-@media (max-width: 760px) {
-  :root { --nav-h: calc(64px + env(safe-area-inset-bottom)); }
-  .topbar { top: calc(var(--s2) + env(safe-area-inset-top)); left: var(--s2); right: var(--s2); flex-wrap: wrap; gap: 6px; }
+/* ---------- large monitors: the rem-based UI grows with the screen ---------- */
+@media (min-width: 1800px) and (min-height: 900px) { :root { font-size: 106.25%; } }
+@media (min-width: 2400px) and (min-height: 1300px) { :root { font-size: 118.75%; } }
+@media (min-width: 3200px) and (min-height: 1700px) { :root { font-size: 137.5%; } }
+
+/* ---------- touch screens of any size: larger targets ---------- */
+@media (pointer: coarse) {
+  .toggle, .exag, .filters button { min-height: 40px; }
+  .seg button { min-height: 36px; }
+  .icon-btn, .x { width: 40px; height: 40px; }
+  .btn { min-height: 44px; }
+}
+
+/* ---------- sheet mode (shared) ---------- */
+@media (max-width: 1199px), (max-height: 520px) {
+  :root {
+    --nav-h: calc(64px + env(safe-area-inset-bottom));
+    --edge-l: max(var(--s2), env(safe-area-inset-left));
+    --edge-r: max(var(--s2), env(safe-area-inset-right));
+  }
+  .topbar { top: calc(var(--s2) + env(safe-area-inset-top)); left: var(--edge-l); right: var(--edge-r); gap: 6px; }
   .brand { padding: 4px var(--s3) 4px 4px; }
   .brand-mark { width: 30px; height: 30px; border-radius: 7px; }
   .brand h1 { font-size: var(--fs-md); }
-  .help-btn { min-height: 40px; margin-left: auto; }
-  /* All three sources stay visible (CITF): three columns that wrap instead of scrolling. */
-  .sources { order: 3; flex: 1 0 100%; margin-left: 0; display: grid; grid-template-columns: 1.25fr 1fr 0.9fr; }
-  .src { padding: 5px var(--s2) 6px; white-space: normal; min-width: 0; }
-  .src small { gap: 5px; align-items: flex-start; }
-  .src small i { margin-top: 4px; }
-  .src b { font-size: var(--fs-xs); line-height: 1.3; }
+  .brand p { display: none; }
+  .help-btn { min-height: 40px; margin-left: auto; padding: 0 var(--s3); }
+  .help-btn span { display: none; }
+  a.src .icon-svg { display: none; }
 
   .panel, .panel.left, .panel.right, .dock {
-    position: fixed; display: none; top: auto; left: var(--s2); right: var(--s2); bottom: calc(var(--nav-h) + var(--s2));
-    width: auto !important; height: auto !important; max-height: min(44dvh, calc(100dvh - 190px)); padding: 0 var(--s4) var(--s4);
+    position: fixed; display: none; top: auto; left: var(--edge-l); right: var(--edge-r); bottom: calc(var(--nav-h) + var(--s2));
+    width: auto !important; height: auto !important;
+    max-height: min(44dvh, calc(100dvh - var(--top-h, 120px) - var(--nav-h) - 24px));
+    padding: 0 var(--s4) var(--s4); overflow-y: auto; border-radius: 14px; z-index: 4;
     transition: max-height 0.3s var(--ease-out);
-    overflow-y: auto; border-radius: 14px; z-index: 4;
   }
-  /* Sheets open compact so the map stays in view; the handle expands them over it. */
-  .app[data-sheet-full='true'] .panel, .app[data-sheet-full='true'] .dock { max-height: calc(100dvh - 150px - env(safe-area-inset-top) - var(--nav-h)); }
+  /* Sheets open compact so the map stays in view; the handle expands them up to the top bar. */
+  .app[data-sheet-full='true'] .panel, .app[data-sheet-full='true'] .dock { max-height: calc(100dvh - var(--top-h, 120px) - var(--nav-h) - 24px); }
   .sheet-handle {
     position: sticky; top: 0; z-index: 1; display: flex; justify-content: center; align-items: center; flex: none;
     width: calc(100% + var(--s4) * 2); height: 28px; margin: 0 calc(var(--s4) * -1) var(--s1); padding: 0;
@@ -701,39 +727,41 @@ a.src .icon-svg { color: var(--text-3); }
   .tabs::-webkit-scrollbar { display: none; }
   .tabs button { flex: none; }
   .order-row { flex-wrap: wrap; justify-content: flex-start; }
-  a.src .icon-svg { display: none; }
   .dock .layers { flex-direction: column; align-items: stretch; }
   .dock-group, .dock-group + .dock-group { padding: 0; border: 0; }
   .dock-group.help { margin-left: 0; }
   .dock-label { width: 100%; margin-bottom: 2px; }
   .legend { gap: var(--s2); }
-  /* Touch: chips and segmented options reach 40px on phones. */
-  .toggle, .exag, .filters button { min-height: 40px; }
-  .seg button { min-height: 36px; }
-  .icon-btn, .x { width: 40px; height: 40px; }
   .legend .lg-group { flex: 1 0 100%; gap: 4px var(--s3); }
 
   .mobile-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center;
-    height: var(--nav-h); padding: 0 var(--s1) env(safe-area-inset-bottom); background: var(--surface-solid); border-top: 1px solid var(--border);
+    height: var(--nav-h);
+    padding: 0 max(var(--s1), env(safe-area-inset-right)) env(safe-area-inset-bottom) max(var(--s1), env(safe-area-inset-left));
+    background: var(--surface-solid); border-top: 1px solid var(--border);
   }
   .mobile-nav button {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; height: 56px; border: 0; border-radius: var(--r-md);
-    background: none; color: var(--text-3); font-size: 11px; font-weight: 600;
+    background: none; color: var(--text-3); font-size: var(--fs-xs); font-weight: 600;
   }
   .mobile-nav button.on { color: var(--accent); }
   .mobile-nav .mn-play { width: 52px; height: 52px; justify-self: center; border-radius: 50%; background: var(--primary); color: #fff; box-shadow: 0 4px 14px rgba(43, 108, 184, 0.45); }
   .mobile-nav .mn-play:active { transform: scale(0.96); }
 
   .card, .barrio-card {
-    position: fixed; top: calc(108px + env(safe-area-inset-top)); left: var(--s2); right: var(--s2); width: auto; transform: none;
-    max-height: calc(100dvh - 108px - var(--nav-h) - 24px); z-index: 6; animation: none;
+    position: fixed; top: calc(var(--top-h, 108px) + var(--s2)); left: var(--edge-l); right: var(--edge-r); width: auto; transform: none;
+    max-height: calc(100dvh - var(--top-h, 108px) - var(--nav-h) - 24px); z-index: 6; animation: none;
   }
-  .evac-alert { top: calc(108px + env(safe-area-inset-top)); left: var(--s2); right: var(--s2); transform: none; flex-wrap: wrap; row-gap: 0; padding: var(--s2) var(--s3); animation: none; }
-  .impact { left: var(--s2); right: var(--s2); bottom: calc(var(--nav-h) + var(--s2)); transform: none; justify-content: center; padding: var(--s2) var(--s3); animation: none; }
-  .impact .im-item span:last-child { white-space: nowrap; }
+  .evac-alert {
+    top: calc(var(--top-h, 108px) + var(--s2)); left: var(--edge-l); right: var(--edge-r); transform: none;
+    flex-wrap: wrap; row-gap: 0; padding: var(--s2) var(--s3); animation: none;
+  }
+  .impact {
+    left: var(--edge-l); right: var(--edge-r); bottom: calc(var(--nav-h) + var(--s2)); transform: none;
+    justify-content: center; padding: var(--s2) var(--s3); animation: none;
+  }
+  .impact .im-item span:last-child { white-space: nowrap; font-size: var(--fs-sm); }
   .app:not([data-sheet='none']) .impact { display: none; }
-  .impact .im-item span:last-child { font-size: var(--fs-sm); }
   .freecam-help { display: none; }
   .modal-bg { padding: var(--s2); align-items: end; }
   .modal { padding: var(--s5) var(--s4) var(--s4); max-height: 90dvh; border-radius: 16px; }
@@ -744,11 +772,85 @@ a.src .icon-svg { color: var(--text-3); }
   }
   .guide-actions .btn { flex: 1; }
   .guide-foot { display: none; }
+  .drain-list { columns: 1; }
+  .modal td:first-child { white-space: normal; }
+}
+
+/* ---------- phone portrait ---------- */
+@media (max-width: 600px) and (min-height: 521px) {
+  .topbar { flex-wrap: wrap; }
+  /* All three sources stay visible (CITF): three columns that wrap instead of scrolling. */
+  .sources { order: 3; flex: 1 0 100%; margin-left: 0; display: grid; grid-template-columns: 1.25fr 1fr 0.9fr; }
+  .src { padding: 5px var(--s2) 6px; white-space: normal; min-width: 0; }
+  .src small { gap: 5px; align-items: flex-start; }
+  .src small i { margin-top: 4px; }
+  .src b { font-size: var(--fs-xs); line-height: 1.3; }
   .auth-sum { grid-template-columns: repeat(2, 1fr); }
   .auth-sum > div + div { border-left: 0; }
   .auth-sum > div { border-bottom: 1px solid var(--border); }
-  .drain-list { columns: 1; }
-  .modal td:first-child { white-space: normal; }
+}
+/* Very narrow phones (320-359px): tighter grids so nothing wraps into a third line. */
+@media (max-width: 359px) {
+  .presets { gap: 6px; }
+  .preset { padding: var(--s2) 10px; }
+  .src { padding: 4px 6px 5px; }
+  .src-date { display: none; }
+  .mobile-nav button span { font-size: 11px; }
+}
+
+/* ---------- tablet portrait and foldables ---------- */
+@media (min-width: 601px) and (max-width: 899px) and (min-height: 521px) {
+  .panel, .panel.left, .panel.right, .dock {
+    left: 0; right: 0; margin-inline: auto; width: min(600px, calc(100% - var(--s4) * 2)) !important;
+  }
+  .card, .barrio-card, .evac-alert { left: 0; right: 0; margin-inline: auto; width: min(560px, calc(100% - var(--s4) * 2)); }
+  .impact { left: 0; right: 0; margin-inline: auto; width: max-content; max-width: calc(100% - var(--s4) * 2); }
+  .modal-bg { align-items: center; padding: var(--s5); }
+  .guide-actions { position: static; margin: var(--s4) 0 0; padding: 0; border: 0; }
+  .guide-actions .btn { flex: none; }
+  .guide-foot { display: block; }
+  .mobile-nav { grid-template-columns: repeat(5, minmax(0, 110px)); justify-content: center; }
+}
+
+/* ---------- side sheet: tablet landscape, small laptops and every short screen ---------- */
+@media (min-width: 900px) and (max-width: 1199px) and (min-height: 521px), (max-height: 520px) {
+  .panel, .panel.left, .panel.right, .dock {
+    top: calc(var(--top-h, 60px) + var(--s2)); bottom: calc(var(--nav-h) + var(--s2)); left: var(--edge-l); right: auto;
+    width: min(23.75rem, 52vw) !important; max-height: none; padding-top: var(--s3); transition: none;
+  }
+  .app[data-sheet-full='true'] .panel, .app[data-sheet-full='true'] .dock { max-height: none; }
+  .sheet-handle { display: none; }
+  .app:not([data-sheet='none']) .impact { display: flex; left: auto; right: var(--edge-r); max-width: 44vw; }
+  .card, .barrio-card {
+    left: auto; right: var(--edge-r); width: min(23.75rem, 44vw);
+    top: calc(var(--top-h, 60px) + var(--s2)); max-height: calc(100dvh - var(--top-h, 60px) - var(--nav-h) - 24px);
+  }
+  .evac-alert { left: auto; right: var(--edge-r); width: min(26rem, 44vw); top: calc(var(--top-h, 60px) + var(--s2)); }
+  .mobile-nav { grid-template-columns: repeat(5, minmax(0, 120px)); justify-content: center; }
+  .modal-bg { align-items: center; padding: var(--s4); }
+  .guide-actions { position: static; margin: var(--s4) 0 0; padding: 0; border: 0; }
+  .guide-actions .btn { flex: none; }
+}
+
+/* ---------- phone landscape and other short screens: compact chrome ---------- */
+@media (max-height: 520px) {
+  :root { --nav-h: calc(52px + env(safe-area-inset-bottom)); }
+  .topbar { flex-wrap: nowrap; }
+  .brand { padding: 3px; }
+  .brand > div { display: none; }
+  .sources { margin-left: 0; flex: 1 1 auto; min-width: 0; }
+  .src { padding: 4px var(--s3); min-width: 0; flex: 1 1 0; }
+  .src small, .src b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src small i { display: inline-block; margin-right: 5px; vertical-align: 1px; }
+  .src b { font-size: var(--fs-xs); }
+  .help-btn { min-height: 38px; margin-left: 0; }
+  .mobile-nav button { height: 48px; flex-direction: row; gap: 6px; }
+  .mobile-nav .mn-play { width: 44px; height: 44px; }
+  .modal { max-height: calc(100dvh - var(--s4)); }
+  .guide-steps { grid-template-columns: 1fr 1fr; }
+}
+@media (max-height: 520px) and (max-width: 700px) {
+  .mobile-nav button span { display: none; }
 }
 
 /* Reduced motion: drop entrances and pulses, keep state changes instant and the loading spinner (slowed) as feedback. */
