@@ -643,6 +643,7 @@ a.src .icon-svg { color: var(--text-3); }
 
 /* Mobile navigation exists only on small screens. */
 .mobile-nav { display: none; }
+.sheet-handle { display: none; }
 
 /* ---------- medium screens ---------- */
 @media (max-width: 1240px) {
@@ -676,9 +677,20 @@ a.src .icon-svg { color: var(--text-3); }
 
   .panel, .panel.left, .panel.right, .dock {
     position: fixed; display: none; top: auto; left: var(--s2); right: var(--s2); bottom: calc(var(--nav-h) + var(--s2));
-    width: auto !important; height: auto !important; max-height: min(58dvh, calc(100dvh - 190px)); padding: var(--s3) var(--s4) var(--s4);
+    width: auto !important; height: auto !important; max-height: min(44dvh, calc(100dvh - 190px)); padding: 0 var(--s4) var(--s4);
+    transition: max-height 0.3s var(--ease-out);
     overflow-y: auto; border-radius: 14px; z-index: 4;
   }
+  /* Sheets open compact so the map stays in view; the handle expands them over it. */
+  .app[data-sheet-full='true'] .panel, .app[data-sheet-full='true'] .dock { max-height: calc(100dvh - 150px - env(safe-area-inset-top) - var(--nav-h)); }
+  .sheet-handle {
+    position: sticky; top: 0; z-index: 1; display: flex; justify-content: center; align-items: center; flex: none;
+    width: calc(100% + var(--s4) * 2); height: 28px; margin: 0 calc(var(--s4) * -1) var(--s1); padding: 0;
+    border: 0; border-radius: 14px 14px 0 0; background: var(--surface-solid); cursor: grab;
+  }
+  .sheet-handle i { width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong); }
+  .sheet-handle:hover i, .sheet-handle:focus-visible i { background: var(--text-3); }
+  .sheet-handle:focus-visible { box-shadow: inset var(--focus); }
   .app[data-sheet='left'] .panel.left { display: block; }
   .app[data-sheet='right'] .panel.right { display: flex; }
   .app[data-sheet='dock'] .dock { display: flex; }

@@ -43,7 +43,7 @@ export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onS
           ))}
         </ol>
         <p className="hint">
-          Mover el mapa: arrastrá para rotar, rueda o pellizco para acercar, clic derecho o dos dedos para desplazar. Pasá el mouse por un botón para ver qué hace.
+          Mover el mapa: arrastrá para rotar, rueda o pellizco para acercar, clic derecho o dos dedos para desplazar. Para saber qué hace un botón, pasá el mouse por encima (en el celular, mantenelo presionado).
         </p>
         <div className="guide-actions">
           <button className="btn ghost" onClick={() => { onClose(); onShowInfo(); }}>Ver supuestos y límites</button>

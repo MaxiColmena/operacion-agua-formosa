@@ -69,7 +69,13 @@ export default function App() {
   const [showView, setShowView] = useState(false);
   /** Mobile only: which bottom sheet is open (panels become sheets under 760px). */
   const [sheet, setSheet] = useState<'left' | 'right' | 'dock' | null>('left');
-  const toggleSheet = (s: 'left' | 'right' | 'dock') => setSheet((cur) => (cur === s ? null : s));
+  const toggleSheet = (s: 'left' | 'right' | 'dock') => { setSheetFull(false); setSheet((cur) => (cur === s ? null : s)); };
+  /** Mobile only: sheets open compact (map stays visible) and expand from their handle. */
+  const [sheetFull, setSheetFull] = useState(false);
+  const handle = (
+    <button className="sheet-handle" onClick={() => setSheetFull((v) => !v)} aria-expanded={sheetFull}
+      aria-label={sheetFull ? 'Achicar el panel para ver el mapa' : 'Agrandar el panel'}><i aria-hidden="true" /></button>
+  );
   /** Orden de las listas de barrios e infraestructura: por la simulación o por la altura del río a la que se afectan. */
   const [order, setOrder] = useState<'sim' | 'rio'>('sim');
   const closeGuide = () => { markGuideSeen(); setShowGuide(false); };
@@ -292,7 +298,7 @@ export default function App() {
     : { cls: 'idle', text: 'Listo para simular: tocá «Hacer llover».' };
 
   return (
-    <div className="app" ref={appRef} data-sheet={sheet ?? 'none'}>
+    <div className="app" ref={appRef} data-sheet={sheet ?? 'none'} data-sheet-full={sheetFull ? 'true' : 'false'}>
       <div ref={mountRef} className="viewport" />
       {!data && <div className="loading"><div className="spinner" />Cargando terreno de Formosa…</div>}
 
@@ -325,6 +331,7 @@ export default function App() {
       </header>
 
       <aside className={`panel left ${collapsed.left ? 'collapsed' : ''}`}>
+        {handle}
         <div className="panel-head">
           <h2>Escenario</h2>
           <button className="icon-btn collapse" onClick={() => setCollapsed((c) => ({ ...c, left: !c.left }))}
@@ -462,6 +469,7 @@ export default function App() {
       </aside>
 
       <aside className={`panel right ${collapsed.right ? 'collapsed' : ''}`}>
+        {handle}
         <div className="panel-head">
           <button className="icon-btn collapse" onClick={() => setCollapsed((c) => ({ ...c, right: !c.right }))}
             data-tip={collapsed.right ? 'Mostrar los resultados' : 'Ocultar este panel para ver más mapa'} aria-label="Mostrar u ocultar el panel de resultados"
@@ -683,6 +691,7 @@ export default function App() {
       )}
 
       <footer className="dock" ref={dockRef}>
+        {handle}
         <div className="layers">
           <div className="dock-group" role="group" aria-label="Capas visibles en el mapa">
             <span className="dock-label"><Icon name="layers" size={16} />Capas</span>
