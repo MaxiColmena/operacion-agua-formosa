@@ -22,6 +22,7 @@ import { Presentation } from './ui/Presentation';
 import type { DemoApi, DemoSnapshot } from './ui/demo';
 import { RunRecorder, isCritical } from './insights';
 import { TipLayer } from './ui/TipLayer';
+import { SheetHandle } from './ui/SheetHandle';
 import { Icon } from './ui/Icon';
 import { fmtStage, stageContext, thresholdState, RISK_MARGIN, type ThresholdState } from './ui/threshold';
 
@@ -88,8 +89,8 @@ export default function App() {
   /** Mobile only: sheets open compact (map stays visible) and expand from their handle. */
   const [sheetFull, setSheetFull] = useState(false);
   const handle = (
-    <button className="sheet-handle" onClick={() => setSheetFull((v) => !v)} aria-expanded={sheetFull}
-      aria-label={sheetFull ? 'Achicar el panel para ver el mapa' : 'Agrandar el panel'}><i aria-hidden="true" /></button>
+    <SheetHandle full={sheetFull} onToggle={() => setSheetFull((v) => !v)} onExpand={() => setSheetFull(true)}
+      onCompact={() => setSheetFull(false)} onClose={() => { setSheetFull(false); setSheet(null); }} />
   );
   /** Orden de las listas de barrios e infraestructura: por la simulación o por la altura del río a la que se afectan. */
   const [order, setOrder] = useState<'sim' | 'rio'>('sim');
