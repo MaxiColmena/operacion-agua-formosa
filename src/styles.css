@@ -177,7 +177,7 @@ input[type='checkbox'] { width: 18px; height: 18px; margin: 0; accent-color: var
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow);
 }
 .brand-mark { display: block; width: 36px; height: 36px; border-radius: 9px; }
-.brand h1 { margin: 0; font-size: var(--fs-lg); font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
+.brand h1 { margin: 0; font-size: var(--fs-xl); font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
 .brand p { margin: 0; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.3; }
 
 .sources {
@@ -218,7 +218,7 @@ a.src .icon-svg { color: var(--text-3); }
 /* Only the list scrolls inside the results panel; everything above keeps its height. */
 .panel.right > :not(.list) { flex-shrink: 0; }
 .panel-head { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s2); min-height: 32px; }
-.panel h2 { margin: 0; font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
+.panel h2 { margin: 0; font-size: var(--fs-xl); font-weight: 700; line-height: 1.25; letter-spacing: -0.015em; }
 .panel.left .panel-head .collapse { margin-left: auto; }
 .panel-sub { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-3); }
 .panel-sub::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--obs); }
@@ -330,9 +330,10 @@ a.src .icon-svg { color: var(--text-3); }
 /* ---------- results panel ---------- */
 .stats {
   display: grid; grid-template-columns: 1fr 1fr; margin: 0 0 var(--s3);
-  border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: rgba(0, 0, 0, 0.16);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
 }
-.stat { padding: 10px var(--s3); border-bottom: 1px solid var(--border); min-width: 0; }
+.stat { padding: 10px var(--s3) 10px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.stat:nth-child(even) { padding-left: var(--s3); padding-right: 0; }
 .stat:nth-child(odd) { border-right: 1px solid var(--border); }
 .stat:nth-last-child(-n + 2):nth-child(odd), .stat:last-child { border-bottom: 0; }
 .stat span { display: block; font-size: var(--fs-xs); color: var(--text-2); line-height: 1.35; }
@@ -694,6 +695,10 @@ a.src .icon-svg { color: var(--text-3); }
   .dock-group.help { margin-left: 0; }
   .dock-label { width: 100%; margin-bottom: 2px; }
   .legend { gap: var(--s2); }
+  /* Touch: chips and segmented options reach 40px on phones. */
+  .toggle, .exag, .filters button { min-height: 40px; }
+  .seg button { min-height: 36px; }
+  .icon-btn, .x { width: 40px; height: 40px; }
   .legend .lg-group { flex: 1 0 100%; gap: 4px var(--s3); }
 
   .mobile-nav {
@@ -733,6 +738,10 @@ a.src .icon-svg { color: var(--text-3); }
   .modal td:first-child { white-space: normal; }
 }
 
+/* Reduced motion: drop entrances and pulses, keep state changes instant and the loading spinner (slowed) as feedback. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .card, .modal, .impact, .evac-alert, .street-alert.sa-in { animation: none; }
+  .status-line i, .ea-dot { animation: none; }
+  .spinner { animation-duration: 2.4s; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
