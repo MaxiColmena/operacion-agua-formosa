@@ -713,7 +713,10 @@ a.src .icon-svg { color: var(--text-3); }
     position: sticky; top: 0; z-index: 1; display: flex; justify-content: center; align-items: center; flex: none;
     width: calc(100% + var(--s4) * 2); height: 28px; margin: 0 calc(var(--s4) * -1) var(--s1); padding: 0;
     border: 0; border-radius: 14px 14px 0 0; background: var(--surface-solid); cursor: grab;
+    /* The handle owns vertical drags: no page scroll or pull-to-refresh while swiping the sheet. */
+    touch-action: none; -webkit-user-select: none; user-select: none;
   }
+  .sheet-handle:active { cursor: grabbing; }
   .sheet-handle i { width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong); }
   .sheet-handle:hover i, .sheet-handle:focus-visible i { background: var(--text-3); }
   .sheet-handle:focus-visible { box-shadow: inset var(--focus); }
