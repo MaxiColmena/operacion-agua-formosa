@@ -239,7 +239,9 @@ export interface StreetLive {
   curbKm: number; // agua sobre el cordón (≥ 10 cm)
   impassableKm: number; // intransitable (≥ 30 cm)
   dirtCurbKm: number; // calles de tierra con agua sobre el cordón
-  top: { name: string; km: number; maxDepth: number }[];
+  /** cell: celda de la simulación del punto más profundo de la calle (para ubicar el cartel en el mapa). */
+  /** dirt: más de la mitad de lo que tiene agua es calle de tierra (confirmada en OSM). */
+  top: { name: string; km: number; maxDepth: number; cell: number; dirt: boolean }[];
 }
 
 export function prepareStreets(data: AppData, sim: SimGridInfo, urbanCell: Uint8Array): StreetSamples | null {
@@ -251,6 +253,7 @@ export function prepareStreets(data: AppData, sim: SimGridInfo, urbanCell: Uint8
   const nameIdx = new Map<string, number>();
   let total = 0;
   for (const r of data.osm.roads) {
+    if (r.py) continue; // margen paraguaya (Alberdi): no cuenta en los resultados
     const n = r.n ?? '';
     let ni = -1;
     if (n) { ni = nameIdx.get(n) ?? -1; if (ni < 0) { ni = names.length; names.push(n); nameIdx.set(n, ni); } }
@@ -280,6 +283,8 @@ export function evalStreets(st: StreetSamples, d: Float32Array): StreetLive {
   let wet = 0, curb = 0, imp = 0, dirt = 0;
   const byName = new Float64Array(st.names.length);
   const maxByName = new Float32Array(st.names.length);
+  const cellByName = new Int32Array(st.names.length).fill(-1);
+  const dirtByName = new Float64Array(st.names.length);
   for (let i = 0; i < st.cell.length; i++) {
     const sd = streetDepth(d[st.cell[i]], st.urban[i]);
     if (sd < STREET.wet) continue;
@@ -289,12 +294,16 @@ export function evalStreets(st: StreetSamples, d: Float32Array): StreetLive {
       curb += l;
       if (!st.paved[i]) dirt += l;
       const ni = st.name[i];
-      if (ni >= 0) { byName[ni] += l; if (sd > maxByName[ni]) maxByName[ni] = sd; }
+      if (ni >= 0) {
+        byName[ni] += l;
+        if (!st.paved[i]) dirtByName[ni] += l;
+        if (sd > maxByName[ni]) { maxByName[ni] = sd; cellByName[ni] = st.cell[i]; }
+      }
     }
     if (sd >= STREET.impassable) imp += l;
   }
   const top = st.names
-    .map((name, i) => ({ name, km: byName[i] / 1000, maxDepth: maxByName[i] }))
+    .map((name, i) => ({ name, km: byName[i] / 1000, maxDepth: maxByName[i], cell: cellByName[i], dirt: dirtByName[i] > byName[i] / 2 }))
     .filter((t) => t.km > 0.03)
     .sort((a, b) => b.km - a.km)
     .slice(0, 40);

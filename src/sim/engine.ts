@@ -231,8 +231,9 @@ export class FloodSim {
     const qy = this.qy;
     const n2 = this.assumptions.manning ** 2;
     const s = this.scenario;
-    const raining = this.time < s.rainHours * 3600;
-    const rain = raining ? s.rainMmH / 1000 / 3600 : 0; // m/s
+    // Lluvia de este paso (m): solo la parte del paso que cae antes de que termine la tormenta.
+    // (Antes se sumaba el paso entero aunque la tormenta terminara en el medio.)
+    const rainDepth = (s.rainMmH / 1000 / 3600) * Math.max(0, Math.min(dt, s.rainHours * 3600 - this.time));
     const highRiver = s.riverStage >= this.assumptions.alertStage;
     const drain = (s.drainMmH / 1000 / 3600) * (highRiver ? this.assumptions.drainFactorHighRiver : 1);
 
@@ -298,8 +299,8 @@ export class FloodSim {
         if (river[i]) continue;
         const kL = y * (w + 1) + x;
         const dq = ((qx[kL] - qx[kL + 1]) / dx + (qy[i] - qy[i + w]) / dy) * dt;
-        let di = d[i] + dq + rain * dt;
-        rainV += rain * dt * area;
+        let di = d[i] + dq + rainDepth;
+        rainV += rainDepth * area;
         if (!water[i] && di > 0) {
           const out = Math.min(di, drain * (this.drainMap ? this.drainMap[i] : 1) * dt);
           di -= out;

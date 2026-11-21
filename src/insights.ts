@@ -181,7 +181,7 @@ export function recommendations(args: {
     const n = margin.next.find((x) => !x.name.startsWith('(')) ?? margin.next[0];
     out.push({
       tone: margin.within50 ? 'warn' : 'info',
-      title: margin.within50 ? `${margin.within50} instalaciones a menos de 50 cm del río` : `Próximo umbral a ${(n.rise * 100).toFixed(0)} cm`,
+      title: margin.within50 ? `${plural(margin.within50, "instalación", "instalaciones")} a menos de 50 cm del río` : `Próximo umbral a ${(n.rise * 100).toFixed(0)} cm`,
       detail: `Con el río a ${river.toFixed(2).replace('.', ',')} m${breach ? ' y la defensa rota' : ''}, la siguiente en recibir agua del río es ${n.name} (${n.stage.toFixed(2).replace('.', ',')} m). Hasta +1 m: ${margin.within100}; hasta +2 m: ${margin.within200}.`,
     });
   }

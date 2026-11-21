@@ -9,3 +9,6 @@ data/raw/
 data-raw/
 dist/
 presentacion/
+# Local tooling (graph cache, agent skill registry)
+graphify-out/
+.atl/

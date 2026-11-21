@@ -6,7 +6,8 @@ import type { ZonesMeta } from '../data/load';
 import { defenseValue, exposureCurve, recommendations, riverMargin, type RunRecorder, type TimelinePoint } from '../insights';
 import { RIVER_REF, LEVELS } from '../sim/scenarios';
 import { fmtStage } from './threshold';
-import { Icon, type IconName } from './icons';
+import './demo.css';
+import { Icon, type IconName } from './Icon';
 
 /** Two categorical series validated for the dark surface (CVD ΔE 20.8, contrast ≥ 3:1). */
 const SERIES_A = '#2f9fd0';
@@ -78,7 +79,7 @@ export function AnalyticsPanel(p: AnalyticsProps) {
             <ol className="events">
               {recorder.events.slice(0, 8).map((e) => (
                 <li key={e.kind + e.text} className={`ev ev-${e.kind}`}>
-                  <span className="mono">{fmtTime(e.t).replace('t=0 (río)', '0 min')}</span>
+                  <span className="num">{fmtTime(e.t).replace('t=0 (río)', '0 min')}</span>
                   <button onClick={() => p.onFocusFacility(e.text.replace(/^Agua en /, ''))} disabled={!e.text.startsWith('Agua en ')}>{e.text}</button>
                 </li>
               ))}
@@ -102,7 +103,7 @@ export function AnalyticsPanel(p: AnalyticsProps) {
                 <tbody>
                   {refMarks(crest, river).map((m) => {
                     const i = Math.max(0, Math.min(curve.stages.length - 1, Math.round((m.v - curve.stages[0]) * 10)));
-                    return <tr key={m.t}><td>{m.t} · {fmtStage(m.v)}</td><td className="mono">{curve.facilities[i]}</td><td className="mono">{curve.critical[i]}</td><td className="mono">{curve.barrios[i]}</td></tr>;
+                    return <tr key={m.t}><td>{m.t} · {fmtStage(m.v)}</td><td className="num">{curve.facilities[i]}</td><td className="num">{curve.critical[i]}</td><td className="num">{curve.barrios[i]}</td></tr>;
                   })}
                 </tbody>
               </table>
@@ -142,7 +143,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 }
 
 function Kpi({ value, label, tone }: { value: number; label: string; tone?: 'bad' | 'warn' }) {
-  return <div className={`kpi-mini ${tone ?? ''}`}><b className="mono">{value}</b><span>{label}</span></div>;
+  return <div className={`kpi-mini ${tone ?? ''}`}><b className="num">{value}</b><span>{label}</span></div>;
 }
 
 function refMarks(crest: number, river: number) {
@@ -242,7 +243,7 @@ function Spark({ points, k, label, unit, digits }: { points: TimelinePoint[]; k:
     <div className="spark">
       <div className="spark-h">
         <span>{label}</span>
-        <b className="mono">{fmt(cur ? cur[k] : points[points.length - 1][k])}</b>
+        <b className="num">{fmt(cur ? cur[k] : points[points.length - 1][k])}</b>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${label}: máximo ${fmt(peak[k])} a los ${fmtTime(peak.t)}`}>
         <path d={`${line} L${x(tMax)},${H - P} L${x(0)},${H - P} Z`} className="spark-area" />
@@ -263,7 +264,7 @@ function Bars({ rows, unit }: { rows: { label: string; value: number }[]; unit: 
         <li key={r.label} title={`${r.label}: ${r.value} ${unit}`}>
           <span className="bars-l">{r.label}</span>
           <span className="bars-track"><i style={{ width: `${(r.value / max) * 100}%` }} /></span>
-          <b className="mono">{r.value.toLocaleString('es-AR')} {unit}</b>
+          <b className="num">{r.value.toLocaleString('es-AR')} {unit}</b>
         </li>
       ))}
     </ul>

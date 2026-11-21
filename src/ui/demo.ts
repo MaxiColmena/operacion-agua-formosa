@@ -1,7 +1,7 @@
 // Contract between the App container and the scripted flows (guided tour, cinematic presentation).
 import type { Layers, MapScene, WaterMode } from '../scene/MapScene';
 
-export type ResultsTab = 'calles' | 'barrios' | 'infra';
+export type ResultsTab = 'prioridad' | 'calles' | 'barrios' | 'infra';
 
 export interface DemoSnapshot {
   simSeconds: number;
@@ -13,6 +13,8 @@ export interface DemoSnapshot {
   facilitiesAffected: number;
   criticalAffected: number;
   barriosAffected: number;
+  /** People living in cells with water (Censo 2022), 0 when the census layer is missing. */
+  people: number;
   worstFacility: string | null;
 }
 

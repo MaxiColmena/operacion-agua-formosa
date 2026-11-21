@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DemoApi } from './demo';
 import { CameraPath, LANDMARKS, PathPlayer, orbitKeys } from '../scene/Cinematic';
-import { Icon } from './icons';
+import './demo.css';
+import { Icon } from './Icon';
 
 interface TourStep {
   /** `data-tour` id of the element to spotlight; none = the map itself. */
@@ -49,6 +50,11 @@ const STEPS: TourStep[] = [
     target: 'kpis', title: '3 · Resultados en vivo',
     body: 'Kilómetros de calles con agua sobre el cordón, edificios con agua, superficie inundada e instalaciones afectadas.',
     ms: 6500,
+  },
+  {
+    target: 'results', title: 'Dónde actuar primero',
+    body: 'Barrios ordenados por personas (Censo 2022) × urgencia × vulnerabilidad. Ordena la evaluación en terreno; no decide.',
+    ms: 6500, enter: (api) => api.setTab('prioridad'),
   },
   {
     target: 'results', title: 'Calles que se cortan',

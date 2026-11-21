@@ -1,6 +1,7 @@
 // Descarga de OpenStreetMap (Overpass) la infraestructura crítica, calles, agua, barrios y edificios.
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { BBOX } from './config';
+import { surfaceClass } from '../src/data/surface';
 
 const bb = `${BBOX.south},${BBOX.west},${BBOX.north},${BBOX.east}`;
 const ENDPOINTS = [
@@ -84,7 +85,9 @@ const facilities = (infra.elements as El[]).flatMap((e) => {
 const roadsRaw = await overpass('roads', `way[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|service)$"];`);
 const roads = (roadsRaw.elements as El[]).map((e) => ({
   k: /motorway|trunk|primary/.test(e.tags!.highway) ? 1 : /secondary|tertiary/.test(e.tags!.highway) ? 2 : 3,
-  paved: !/unpaved|dirt|ground|earth|sand|gravel/.test(e.tags!.surface ?? ''),
+  // Tipo de calzada: p = pavimentada, t = tierra, ? = sin dato (ver src/data/surface.ts). «paved» queda por compatibilidad.
+  paved: surfaceClass(e.tags!.surface) !== 't',
+  s: surfaceClass(e.tags!.surface),
   n: e.tags!.name ?? '',
   c: line(e.geometry),
 }));

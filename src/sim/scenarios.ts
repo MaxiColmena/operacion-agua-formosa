@@ -51,6 +51,35 @@ export const INA_CATEGORY_REF: { stage: number; cat: string; date: string; sourc
 /** Pronóstico de lluvia a 7 días para el departamento Formosa (ESTIMADO, Open-Meteo, emitido el 17/11/2026). */
 export const RAIN_FORECAST_7D = { meanMm: 129, maxMm: 150, issued: '17/11/2026', source: 'Open-Meteo vía parte provincial del 17/11/2026' };
 
+/**
+ * Previsión del INA a corto plazo para Puerto Formosa (ESTIMADO). Leída a ojo del gráfico «Previsión de
+ * niveles a corto plazo» del reporte diario del 19/11/2026: valores aproximados. Actualizar a mano.
+ */
+export const FORECAST_INA = {
+  until: '25/11/2026',
+  stage: 4.55,
+  margin: 0.3,
+  text: 'Oscilante / leve descenso a corto plazo; posible aumento de los valores semanales por lluvias en el tramo medio e inferior.',
+  source: 'INA · Reporte hidrometeorológico diario del 19/11/2026 (gráfico de previsión, valores aproximados)',
+  url: 'https://alerta.ina.gob.ar/ina/06-INFORMES/diario/pdf/reporte_diario_2026-11-19.pdf',
+};
+
+/**
+ * Ritmo de subida del río para declarar "en cuántos días" llegaría a la altura del escenario (guía CITF, sección 03:
+ * "cada escenario debe declarar sus supuestos: cuánto sube el río, en cuántos días").
+ * Observado en la crecida de octubre de 2026: 2,88 m el 11/10 → 5,59 m el 30/10 (2,71 m en 19 días ≈ 14 cm/día).
+ * Es un SUPUESTO para expresar el escenario, no un pronóstico.
+ */
+export const RISE_REF = {
+  cmPerDay: 14,
+  source: 'crecida de oct. 2026: 2,88 m (11/10) → 5,59 m (30/10), lecturas de Prefectura/INA publicadas en medios',
+};
+
+/** Días que tardaría el río en pasar de `from` a `stage` al ritmo de RISE_REF (0 si no sube). */
+export function daysToRise(stage: number, from: number = RIVER_REF.observed.stage) {
+  return stage <= from + 0.05 ? 0 : Math.ceil(((stage - from) * 100) / RISE_REF.cmPerDay);
+}
+
 export interface NamedScenario extends Scenario {
   id: string;
   label: string;

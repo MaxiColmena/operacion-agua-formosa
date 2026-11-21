@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type { DemoApi, DemoSnapshot } from './demo';
 import { CameraPath, LANDMARKS, PathPlayer, type CamKey } from '../scene/Cinematic';
-import { Icon } from './icons';
+import './demo.css';
+import { Icon } from './Icon';
 
 interface Chapter {
   t0: number;
@@ -24,7 +25,7 @@ const CHAPTERS: Chapter[] = [
     t0: 0, t1: 7.5, style: 'hero', title: 'Operación Agua', sub: 'Simulador de lluvia y crecida · Formosa Capital',
     enter: (api) => {
       api.setAnalytics(false); api.setViewMenu(false); api.clearSelection();
-      api.setLayers({ water: true, zones: false, buildings: true, lines: true, labels: false, facilities: true, drainage: false });
+      api.setLayers({ water: true, zones: false, buildings: true, lines: true, labels: false, facilities: true, drainage: false, priority: false, surface: false });
       api.setWaterMode('depth'); api.applyPreset('n2'); api.setSpeed(900);
     },
   },
@@ -45,14 +46,18 @@ const CHAPTERS: Chapter[] = [
       : 'Hospitales, salud, bomberos, agua y energía: en qué orden les llega el agua',
   },
   {
-    t0: 70, t1: 80, kicker: 'Mapa precalculado', title: 'Zonas 1º, 2º y 3º', sub: 'Qué se inunda con lluvia fuerte, con temporal severo y solo en el extremo',
+    t0: 70, t1: 77, kicker: 'Mapa precalculado', title: 'Zonas 1º, 2º y 3º', sub: 'Qué se inunda con lluvia fuerte, con temporal severo y solo en el extremo',
     enter: (api) => api.setLayers({ zones: true }),
   },
   {
-    t0: 80, t1: 88, style: 'summary', kicker: 'Para decidir', title: 'Lo que deja este escenario', sub: '',
-    enter: (api) => api.setLayers({ zones: false }),
+    t0: 77, t1: 84, kicker: 'Censo 2022', title: 'Dónde actuar primero', sub: 'Personas × urgencia × vulnerabilidad: ordena la evaluación, no decide',
+    enter: (api) => api.setLayers({ zones: false, priority: true }),
   },
-  { t0: 88, t1: 95, style: 'hero', title: 'Simulá. Anticipá. Decidí.', sub: 'Operación Agua · Juegos Provinciales Tecnológicos · 5ª edición' },
+  {
+    t0: 84, t1: 90, style: 'summary', kicker: 'Para decidir', title: 'Lo que deja este escenario', sub: '',
+    enter: (api) => api.setLayers({ priority: false }),
+  },
+  { t0: 90, t1: 95, style: 'hero', title: 'Simulá. Anticipá. Decidí.', sub: 'Operación Agua · Juegos Provinciales Tecnológicos · 5ª edición' },
 ];
 const TOTAL = CHAPTERS[CHAPTERS.length - 1].t1;
 
@@ -246,17 +251,17 @@ function drawOverlay(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, t: nu
   if (ch.style === 'hero') {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#f2f6f8';
-    ctx.font = `700 ${Math.round(92 * u)}px "Bricolage Grotesque", system-ui, sans-serif`;
+    ctx.font = `700 ${Math.round(92 * u)}px "Public Sans", system-ui, sans-serif`;
     ctx.fillText(ch.title, W / 2, H * 0.47 + rise);
     ctx.fillStyle = 'rgba(214, 228, 236, 0.86)';
-    ctx.font = `400 ${Math.round(32 * u)}px "Atkinson Hyperlegible Next", system-ui, sans-serif`;
+    ctx.font = `400 ${Math.round(32 * u)}px "Public Sans", system-ui, sans-serif`;
     ctx.fillText(sub, W / 2, H * 0.47 + 62 * u + rise);
   } else if (ch.style === 'summary') {
     const x = 96 * u, y0 = H * 0.3;
     ctx.textAlign = 'left';
     kickerText(ctx, ch.kicker ?? '', x, y0 + rise, u);
     ctx.fillStyle = '#f2f6f8';
-    ctx.font = `700 ${Math.round(56 * u)}px "Bricolage Grotesque", system-ui, sans-serif`;
+    ctx.font = `700 ${Math.round(56 * u)}px "Public Sans", system-ui, sans-serif`;
     ctx.fillText(ch.title, x, y0 + 64 * u + rise);
     const rows: [string, string][] = [
       [`${nf(snap.curbKm, 1)} km`, 'de calles con agua sobre el cordón'],
@@ -264,15 +269,16 @@ function drawOverlay(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, t: nu
       [nf(snap.buildingsWet), 'edificios con agua'],
       [`${snap.facilitiesAffected}`, `instalaciones afectadas (${snap.criticalAffected} críticas)`],
       [`${snap.barriosAffected}`, 'barrios con más del 5 % bajo agua'],
+      ...(snap.people > 0 ? [[`~${nf(snap.people)}`, 'personas viven en zonas con agua (Censo 2022)'] as [string, string]] : []),
     ];
     rows.forEach(([v, l], i) => {
       const y = y0 + (132 + i * 64) * u + rise;
       ctx.fillStyle = '#8fd3e8';
-      ctx.font = `600 ${Math.round(42 * u)}px "Atkinson Hyperlegible Mono", ui-monospace, monospace`;
+      ctx.font = `600 ${Math.round(42 * u)}px "Public Sans", system-ui, sans-serif`;
       ctx.fillText(v, x, y);
       const vw = ctx.measureText(v).width;
       ctx.fillStyle = 'rgba(214, 228, 236, 0.9)';
-      ctx.font = `400 ${Math.round(28 * u)}px "Atkinson Hyperlegible Next", system-ui, sans-serif`;
+      ctx.font = `400 ${Math.round(28 * u)}px "Public Sans", system-ui, sans-serif`;
       ctx.fillText(l, x + vw + 18 * u, y);
     });
   } else {
@@ -280,10 +286,10 @@ function drawOverlay(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, t: nu
     ctx.textAlign = 'left';
     kickerText(ctx, ch.kicker ?? '', x, y - 70 * u, u);
     ctx.fillStyle = '#f2f6f8';
-    ctx.font = `700 ${Math.round(54 * u)}px "Bricolage Grotesque", system-ui, sans-serif`;
+    ctx.font = `700 ${Math.round(54 * u)}px "Public Sans", system-ui, sans-serif`;
     ctx.fillText(ch.title, x, y - 14 * u);
     ctx.fillStyle = 'rgba(214, 228, 236, 0.88)';
-    ctx.font = `400 ${Math.round(28 * u)}px "Atkinson Hyperlegible Next", system-ui, sans-serif`;
+    ctx.font = `400 ${Math.round(28 * u)}px "Public Sans", system-ui, sans-serif`;
     ctx.fillText(sub, x, y + 30 * u);
   }
   ctx.restore();
@@ -292,6 +298,6 @@ function drawOverlay(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, t: nu
 function kickerText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, u: number) {
   if (!text) return;
   ctx.fillStyle = '#8fd3e8';
-  ctx.font = `600 ${Math.round(22 * u)}px "Atkinson Hyperlegible Next", system-ui, sans-serif`;
+  ctx.font = `600 ${Math.round(22 * u)}px "Public Sans", system-ui, sans-serif`;
   ctx.fillText(text.toUpperCase().split('').join(String.fromCharCode(8202)), x, y);
 }
