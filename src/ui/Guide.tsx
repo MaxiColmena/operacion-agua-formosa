@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Icon } from './Icon';
 
 const KEY = 'oa-guide-seen-v1';
@@ -19,6 +19,9 @@ const STEPS = [
 ];
 
 export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onShowInfo: () => void }) {
+  const startRef = useRef<HTMLButtonElement>(null);
+  // Focus the main action without scrolling the dialog: on phones autoFocus jumped past the title.
+  useEffect(() => { startRef.current?.focus({ preventScroll: true }); }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -44,7 +47,7 @@ export function WelcomeGuide({ onClose, onShowInfo }: { onClose: () => void; onS
         </p>
         <div className="guide-actions">
           <button className="btn ghost" onClick={() => { onClose(); onShowInfo(); }}>Ver supuestos y límites</button>
-          <button className="btn primary" onClick={onClose} autoFocus>Empezar</button>
+          <button ref={startRef} className="btn primary" onClick={onClose}>Empezar</button>
         </div>
         <p className="hint guide-foot">Podés volver a ver esta guía con el botón «¿Cómo se usa?» de arriba.</p>
       </div>
